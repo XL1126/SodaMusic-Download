@@ -1,42 +1,42 @@
 # Soda Download
 
-<br>一个汽水音乐下载工具，基于 Vue 3、Naive UI、Vite 和 Express 构建。  
-<br>它把登录、解析、查看详情、单曲下载、歌单浏览和批量打包下载这些常用能力整合到了一个本地应用里。
-**原仓库地址**：[点击前往](https://github.com/SaKongA/PopDownloader)
+<br>一个**汽水音乐**下载工具，基于 **Vue 3、Naive UI、Vite 和 Express** 构建。  
+<br>它把**登录、解析、查看详情、单曲下载、歌单浏览和批量打包下载**这些常用能力整合到了一个本地应用里。
+<br>本仓库**全面优化**了原仓库的**功能部分**，增加了**日志系统，修复了旧问题，逆向了汽水的SDK**。**原仓库地址**：[点击前往](https://github.com/SaKongA/PopDownloader)
 
 ## 🖼️ 界面预览
 
 ### 单曲解析
 
-![单曲解析](./README-assets/单曲解析.png)
+![[单曲解析]](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/单曲解析.png)
 
 ### 单曲解析（浅色）
 
-![单曲解析-浅色](./README-assets/单曲解析-浅色.png)
+![单曲解析-浅色](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/单曲解析-浅色.png)
 
 ### 资源详情 - 音乐
 
-![资源详情-音乐](./README-assets/资源详情-音乐.png)
+![资源详情-音乐](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/资源详情-音乐.png)
 
 ### 视频详情
 
-![视频详情](./README-assets/视频详情.png)
+![视频详情](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/视频详情.png)
 
 ### 我的歌单
 
-![我的歌单](./README-assets/我的歌单.png)
+![我的歌单](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/我的歌单.png)
 
 ### 歌曲列表
 
-![歌曲列表](./README-assets/歌曲列表.png)
+![歌曲列表](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/歌曲列表.png)
 
 ### 打包下载
 
-![打包下载](./README-assets/打包下载.png)
+![打包下载](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/打包下载.png)
 
 ### 关于应用
 
-![关于应用](./README-assets/关于应用.png)
+![关于应用](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/关于应用.png)
 
 ## 🚀 当前功能
 
@@ -161,26 +161,6 @@ npm run build
 
 ```bash
 npm run start
-```
-
-## 📁 项目结构
-
-```text
-Soda Download/
-├─ README-assets/           README 截图
-├─ src/                     前端页面、组件与 API 封装
-│  ├─ pages/                页面
-│  ├─ components/           组件
-│  ├─ api/                  前端接口请求
-│  ├─ assets/               前端静态资源
-│  └─ utils/                前端工具函数
-├─ server/                  本地 Express API 与下载逻辑
-│  ├─ apis/                 接口定义
-│  ├─ config/               配置
-│  └─ utils/                下载、解析、解密等工具
-├─ index.html               前端入口 HTML
-├─ vite.config.mjs          Vite 配置
-└─ package.json             项目依赖与脚本
 ```
 
 ## 🔐 关于登录
