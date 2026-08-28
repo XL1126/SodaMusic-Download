@@ -8,35 +8,36 @@
 
 ### 单曲解析
 
-![[单曲解析]](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/单曲解析.png)
+![单曲解析](./README-assets/单曲解析.png)
 
 ### 单曲解析（浅色）
 
-![单曲解析-浅色](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/单曲解析-浅色.png)
+![单曲解析-浅色](./README-assets/单曲解析-浅色.png)
 
 ### 资源详情 - 音乐
 
-![资源详情-音乐](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/资源详情-音乐.png)
+![资源详情-音乐](./README-assets/资源详情-音乐.png)
 
 ### 视频详情
 
-![视频详情](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/视频详情.png)
+![视频详情](./README-assets/视频详情.png)
 
 ### 我的歌单
 
-![我的歌单](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/我的歌单.png)
+![我的歌单](./README-assets/我的歌单.png)
 
 ### 歌曲列表
 
-![歌曲列表](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/歌曲列表.png)
+![歌曲列表](./README-assets/歌曲列表.png)
 
 ### 打包下载
 
-![打包下载](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/打包下载.png)
+![打包下载](./README-assets/打包下载.png)
 
 ### 关于应用
 
-![关于应用](https://github.com/SaKongA/PopDownloader/tree/main/README-assets/关于应用.png)
+![关于应用](./README-assets/关于应用.png)
+
 
 ## 🚀 当前功能
 
