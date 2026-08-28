@@ -1,7 +1,7 @@
 # Soda Download
 
-一个汽水音乐下载工具，基于 Vue 3、Naive UI、Vite 和 Express 构建。  
-它把登录、解析、查看详情、单曲下载、歌单浏览和批量打包下载这些常用能力整合到了一个本地应用里。
+<br>一个汽水音乐下载工具，基于 Vue 3、Naive UI、Vite 和 Express 构建。  
+<br>它把登录、解析、查看详情、单曲下载、歌单浏览和批量打包下载这些常用能力整合到了一个本地应用里。
 **原仓库地址**：[点击前往](https://github.com/SaKongA/PopDownloader)
 
 ## 🖼️ 界面预览
