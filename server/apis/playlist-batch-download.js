@@ -102,16 +102,40 @@ function appendToArchive(archive, input, name) {
 const TASK_TIMEOUT_FALLBACK_MS = 8 * 60 * 1000 // fallback per-task timeout
 
 function withTaskTimeout(promise, taskDescription, timeoutMs = TASK_TIMEOUT_FALLBACK_MS) {
+  let timeoutId = null
+  let settled = false
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      if (settled) {
+        return
+      }
+      settled = true
+      const err = new Error(`Task timed out after ${timeoutMs}ms: ${taskDescription}`)
+      err.name = 'TaskTimeoutError'
+      batchLogger.error(`Task timeout`, { task: taskDescription, timeoutMs })
+      reject(err)
+    }, timeoutMs)
+  })
+
   return Promise.race([
-    promise,
-    new Promise((_, reject) => {
-      setTimeout(() => {
-        const err = new Error(`Task timed out after ${timeoutMs}ms: ${taskDescription}`)
-        err.name = 'TaskTimeoutError'
-        batchLogger.error(`Task timeout`, { task: taskDescription, timeoutMs })
-        reject(err)
-      }, timeoutMs)
-    }),
+    Promise.resolve(promise).then(
+      (value) => {
+        settled = true
+        if (timeoutId != null) {
+          clearTimeout(timeoutId)
+        }
+        return value
+      },
+      (error) => {
+        settled = true
+        if (timeoutId != null) {
+          clearTimeout(timeoutId)
+        }
+        throw error
+      },
+    ),
+    timeoutPromise,
   ])
 }
 
