@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
             style="margin-left: 12px; overflow: hidden; white-space: nowrap;"
           >
             <n-gradient-text :size="18" type="success">
-              SodaMusic-Download
+              SodaMusic
             </n-gradient-text>
             <n-text depth="3">
               本地音乐工具
