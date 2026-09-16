@@ -13,8 +13,9 @@ const request = {
 }
 
 const response = {
-  message: 'PopDownloader local API is running',
-  author: 'jason',
+  message: 'SodaMusic-Download local API is running',
+  author: '小狸[XL1126]',
+  originalAuthor: 'Jason / SaKongA (PopDownloader)',
   port: 3001,
 }
 
@@ -28,6 +29,7 @@ module.exports = {
     res.json({
       message: response.message,
       author: response.author,
+      originalAuthor: response.originalAuthor,
       port: process.env.PORT || response.port,
     })
   },

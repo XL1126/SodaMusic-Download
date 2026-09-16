@@ -20,21 +20,29 @@ import {
 } from '@vicons/ionicons5'
 
 const appInfo = {
-  name: 'PopDownloader',
-  version: 'v1.2.1',
+  name: 'SodaMusic-Download',
+  version: 'v2.0.1',
   description: '一个本地优先的汽水音乐工具，支持二维码登录、单曲解析、资源详情查看、歌单浏览和批量打包下载。',
 }
 
 const authorInfo = {
-  name: 'Jason',
+  name: '小狸[XL1126]',
   role: '作者 / 维护者',
+  githubName: 'XL1126',
+  homepage: 'https://github.com/XL1126/',
+}
+
+const originalAuthorInfo = {
+  name: 'Jason',
+  role: '原作者（PopDownloader）',
   githubName: 'SaKongA',
+  repository: 'https://github.com/SaKongA/PopDownloader',
 }
 
 const repositoryInfo = {
-  name: 'SaKongA/PopDownloader',
-  url: 'https://github.com/SaKongA/PopDownloader',
-  issuesUrl: 'https://github.com/SaKongA/PopDownloader/issues',
+  name: 'XL1126/SodaMusic-Download',
+  url: 'https://github.com/XL1126/SodaMusic-Download/',
+  issuesUrl: 'https://github.com/XL1126/SodaMusic-Download/issues',
 }
 
 const acknowledgements = [
@@ -140,8 +148,18 @@ function openExternal(url) {
             <n-text depth="3">
               GitHub：{{ authorInfo.githubName }}
             </n-text>
-            <n-button secondary @click="openExternal(`https://github.com/${authorInfo.githubName}`)">
+            <n-button secondary @click="openExternal(authorInfo.homepage)">
               打开作者主页
+            </n-button>
+
+            <n-text depth="3" style="margin-top: 8px;">
+              原作者：{{ originalAuthorInfo.name }}（{{ originalAuthorInfo.role }}）
+            </n-text>
+            <n-text depth="3">
+              原仓库：{{ originalAuthorInfo.repository }}
+            </n-text>
+            <n-button secondary @click="openExternal(originalAuthorInfo.repository)">
+              打开原仓库
             </n-button>
           </n-space>
         </n-card>

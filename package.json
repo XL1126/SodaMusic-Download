@@ -1,7 +1,7 @@
 {
-  "name": "soda-download",
-  "version": "1.2.1",
-  "description": "Local-first Soda Download app built with Vue, Naive UI, xicons, and Express.",
+  "name": "soda-music-download",
+  "version": "2.0.1",
+  "description": "Local-first SodaMusic-Download app built with Vue, Naive UI, xicons, and Express.",
   "main": "server/index.js",
   "scripts": {
     "dev": "concurrently \"npm:dev:web\" \"npm:dev:server\"",
@@ -18,9 +18,13 @@
     "vue",
     "naive-ui",
     "express",
-    "desktop-local"
+    "desktop-local",
+    "sodamusic"
   ],
-  "author": "jason",
+  "author": "小狸[XL1126] (https://github.com/XL1126/)",
+  "contributors": [
+    "Jason / SaKongA (https://github.com/SaKongA/PopDownloader)"
+  ],
   "license": "ISC",
   "type": "commonjs",
   "bugs": {

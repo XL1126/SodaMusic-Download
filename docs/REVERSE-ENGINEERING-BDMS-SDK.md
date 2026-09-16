@@ -9,7 +9,7 @@
 
 ### 1.1 现象
 
-PopDownloader 项目的批量下载/单曲下载功能完全失效。调用汽水音乐上游 API `https://api.qishui.com/luna/pc/track_v2` 时：
+SodaMusic-Download 项目的批量下载/单曲下载功能完全失效。调用汽水音乐上游 API `https://api.qishui.com/luna/pc/track_v2` 时：
 
 - HTTP 状态码：200 OK
 - 响应体：**0 字节**（空 body）
@@ -286,7 +286,7 @@ const result = bdms.generateHttpSignatureHeaders(url, headersStr)
 
 ---
 
-## 七、集成到 PopDownloader
+## 七、集成到 SodaMusic-Download
 
 ### 7.1 bdms-signer.js 模块
 
@@ -336,7 +336,7 @@ const response = await fetchWithTimeout(trackV2Url, {
 ### 8.1 签名生成架构
 
 ```
-PopDownloader 后端
+SodaMusic-Download 后端
   │
   ├── bdms-signer.js
   │     ├── require(bdms.node)          ← 加载原生模块
@@ -379,7 +379,7 @@ bdms.node (164KB N-API 模块)
 |------|------|------|
 | bdms.node | `resources/app.asar.unpacked/bdms.node` | 核心签名模块 |
 | metasecml.dll | `resources/app.asar.unpacked/metasecml.dll` | 底层加密库 |
-| bdms-signer.js | `server/utils/bdms-signer.js` | PopDownloader 签名封装 |
+| bdms-signer.js | `server/utils/bdms-signer.js` | SodaMusic-Download 签名封装 |
 | track-download.js | `server/utils/track-download.js` | 使用签名的下载逻辑 |
 | track-v2.js | `server/apis/track-v2.js` | 使用签名的 API 代理 |
 | main.js.map | `resources/main.asar/assets/main-*.js.map` | sourcemap（含 BDMS 调用源码） |

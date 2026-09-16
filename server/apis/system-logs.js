@@ -67,7 +67,10 @@ module.exports = {
     try {
       if (fs.existsSync(logDir)) {
         const entries = fs.readdirSync(logDir)
-          .filter((f) => f.startsWith('popdownloader-') && f.endsWith('.log'))
+          .filter((f) => (
+            (f.startsWith('sodamusic-download-') || f.startsWith('popdownloader-'))
+            && f.endsWith('.log')
+          ))
           .sort()
           .reverse()
           .slice(0, 7)

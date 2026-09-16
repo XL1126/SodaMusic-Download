@@ -1,6 +1,10 @@
 const express = require('express')
 const path = require('path')
 const fs = require('fs')
+const { spawn } = require('child_process')
+
+const APP_NAME = 'SodaMusic-Download'
+const APP_VERSION = 'v2.0.1'
 
 // ============================================================
 // 平台检测：仅支持 Windows
@@ -10,7 +14,7 @@ const fs = require('fs')
 if (process.platform !== 'win32') {
   console.error('')
   console.error('═══════════════════════════════════════════════════════════')
-  console.error('  PopDownloader 仅支持 Windows 系统运行')
+  console.error(`  ${APP_NAME} ${APP_VERSION} 仅支持 Windows 系统运行`)
   console.error('═══════════════════════════════════════════════════════════')
   console.error('')
   console.error('  原因：项目依赖汽水音乐 PC 客户端（SodaMusic）的')
@@ -142,14 +146,50 @@ process.on('unhandledRejection', (reason, promise) => {
   })
 })
 
+/**
+ * 项目启动后自动打开浏览器。
+ * - npm start / 直接 node server/index.js：打开 http://localhost:PORT
+ * - npm run dev（nodemon）：由 Vite open 打开前端，避免重复弹窗
+ * - AUTO_OPEN=0 可关闭；AUTO_OPEN=1 可强制打开
+ */
+function openBrowser(url) {
+  try {
+    // Windows: start "" "url"；空 title 避免 url 被当成窗口标题
+    const child = spawn('cmd', ['/c', 'start', '', url], {
+      detached: true,
+      stdio: 'ignore',
+      shell: false,
+    })
+    child.unref()
+    serverLogger.info(`Opened browser at ${url}`, { url })
+  } catch (err) {
+    serverLogger.warn(`Failed to open browser`, { url, error: err?.message })
+  }
+}
+
+function shouldOpenBrowser() {
+  if (process.env.AUTO_OPEN === '0') return false
+  if (process.env.AUTO_OPEN === '1') return true
+  // 开发模式交给 Vite 打开 5173，避免同时弹出 3001
+  const lifecycle = process.env.npm_lifecycle_event
+  if (lifecycle === 'dev' || lifecycle === 'dev:server') return false
+  return true
+}
+
 const server = app.listen(port, () => {
-  serverLogger.info(`PopDownloader server listening on http://localhost:${port}`, {
+  const appUrl = `http://localhost:${port}`
+  serverLogger.info(`${APP_NAME} ${APP_VERSION} server listening on ${appUrl}`, {
     port,
     logFilePath: getLogFilePath(),
     nodeVersion: process.version,
     platform: process.platform,
     pid: process.pid,
   })
+
+  // 仅在提供前端静态页时自动打开，纯 API 模式不弹浏览器
+  if (fs.existsSync(distPath) && shouldOpenBrowser()) {
+    openBrowser(appUrl)
+  }
 })
 
 server.on('error', (err) => {

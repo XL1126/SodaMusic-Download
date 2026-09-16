@@ -10,9 +10,9 @@ const LOG_LEVELS = {
 
 /**
  * 【修复】日志输出目录
- *  原先是 os.tmpdir()/popdownloader-logs（Windows 下是 %TEMP%，深路径用户根本找不到）。
+ *  原先是 os.tmpdir()/sodamusic-download-logs（Windows 下是 %TEMP%，深路径用户根本找不到）。
  *  现在改为直接放在项目根目录的 ./logs 下面，方便用户直接打开目录定位问题：
- *    <项目根>/logs/popdownloader-YYYYMMDD.log
+ *    <项目根>/logs/sodamusic-download-YYYYMMDD.log
  *  并通过 require.main 判断是否能拿到 server 启动目录（兼容 unit test 场景下 process.cwd() 不是项目根）。
  */
 function resolveProjectLogDir() {
@@ -32,7 +32,7 @@ function ensureLogDir() {
       fs.mkdirSync(LOG_DIR, { recursive: true })
     }
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    logFilePath = path.join(LOG_DIR, `popdownloader-${dateStr}.log`)
+    logFilePath = path.join(LOG_DIR, `sodamusic-download-${dateStr}.log`)
     fileWriteStream = fs.createWriteStream(logFilePath, { flags: 'a' })
   } catch (err) {
     console.error('[Logger] Failed to init log file:', err.message)
@@ -160,7 +160,7 @@ function createLogger(context) {
   }
 }
 
-const logger = createLogger('PopDownloader')
+const logger = createLogger('SodaMusic-Download')
 
 logger.info('Logger initialized', { logFilePath, pid: process.pid })
 
