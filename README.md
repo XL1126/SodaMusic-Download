@@ -5,6 +5,20 @@
 <br>本仓库**全面优化**了原仓库的**功能部分**，增加了**日志系统，修复了旧问题，逆向了汽水的SDK**。
 <br>**原仓库地址**：[点击前往](https://github.com/SaKongA/PopDownloader)
 
+## 如何使用？
+#### 一、克隆仓库
+```
+git clone https://github.com/XL1126/SodaMusic-Download/
+```
+### 二、安装项目依赖
+```
+npm install
+```
+### 三、启动开发环境 
+```
+npm run dev
+```
+
 ## 🖼️ 界面预览
 
 ### 单曲解析
