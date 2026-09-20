@@ -127,6 +127,8 @@ PC 请求附加 Header（非必须业务逻辑，但与客户端行为一致）�
 
 ## 五、接口分组导航
 
+本目录：`docs/汽水音乐API接口文档/`
+
 | 分组 | 文档 | 典型路径 |
 |------|------|----------|
 | 总览（本文） | 汽水音乐API接口总览.md | — |
@@ -137,6 +139,7 @@ PC 请求附加 Header（非必须业务逻辑，但与客户端行为一致）�
 | 评论 / 商业化 / 社交 | [评论商业化与社交接口](./评论商业化与社交接口.md) | comments、commerce、live、im |
 | 安全与公共机制 | [安全签名与公共机制](./安全签名与公共机制.md) | BDMS、BDTicket、设备、风控 |
 | 本项目代理对照 | [本项目本地代理接口对照](./本项目本地代理接口对照.md) | `/api/*` → 上游映射 |
+| 随机播放机制 | [汽水音乐随机播放机制](../汽水音乐随机播放机制.md) | feed/song-tab、radio/tracks、playlist/feed/media |
 
 ---
 
@@ -160,6 +163,7 @@ PC 请求附加 Header（非必须业务逻辑，但与客户端行为一致）�
 | IDL 契约 | `logs/asar-extract/idl-contracts/*.ts` |
 | 客户端源码提取 | `logs/asar-extract/src-dump/*` |
 | BDMS 安全分析 | `docs/REVERSE-ENGINEERING-BDMS-SDK.md` |
+| 随机播放机制 | `docs/汽水音乐随机播放机制.md` |
 | 本项目上游配置 | `server/config/qishui-auth.js` |
 
 ---
