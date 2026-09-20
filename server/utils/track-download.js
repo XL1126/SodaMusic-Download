@@ -553,4 +553,5 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
 module.exports = {
   getTrackV2Payload,
   downloadTrackMedia,
+  fetchTrackPayload,
 }

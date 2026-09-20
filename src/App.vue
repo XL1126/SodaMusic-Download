@@ -29,9 +29,11 @@ import {
   LogInOutline,
   MoonOutline,
   PersonCircleOutline,
+  RadioOutline,
   SunnyOutline,
 } from '@vicons/ionicons5'
 import SingleTrackPage from './pages/SingleTrackPage.vue'
+import RecommendPage from './pages/RecommendPage.vue'
 import MyPlaylistsPage from './pages/MyPlaylistsPage.vue'
 import AccountInfoPage from './pages/AccountInfoPage.vue'
 import AboutAppPage from './pages/AboutAppPage.vue'
@@ -69,6 +71,7 @@ function renderMenuIcon(icon) {
 
 const menuOptions = [
   { label: '单曲解析', key: 'single', icon: renderMenuIcon(DiscOutline) },
+  { label: '汽水推荐', key: 'recommend', icon: renderMenuIcon(RadioOutline) },
   { label: '我的歌单', key: 'playlists', icon: renderMenuIcon(ListOutline) },
   { label: '账号信息', key: 'account', icon: renderMenuIcon(PersonCircleOutline) },
   { label: '关于应用', key: 'about', icon: renderMenuIcon(InformationCircleOutline) },
@@ -76,6 +79,7 @@ const menuOptions = [
 
 const pageComponents = {
   single: markRaw(SingleTrackPage),
+  recommend: markRaw(RecommendPage),
   playlists: markRaw(MyPlaylistsPage),
   account: markRaw(AccountInfoPage),
   about: markRaw(AboutAppPage),
@@ -257,7 +261,7 @@ function handleUserAction(key) {
   authSession.value = null
   userProfile.value = null
 
-  if (activeKey.value === 'playlists' || activeKey.value === 'account') {
+  if (activeKey.value === 'playlists' || activeKey.value === 'account' || activeKey.value === 'recommend') {
     activeKey.value = 'single'
   }
 }

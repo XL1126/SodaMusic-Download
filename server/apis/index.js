@@ -17,6 +17,10 @@ const videoV2Api = require('./video-v2')
 const videoDownloadApi = require('./video-download')
 const videoDownloadAudioApi = require('./video-download-audio')
 const systemLogsApi = require('./system-logs')
+const recommendSongTabApi = require('./recommend-song-tab')
+const recommendTrackDetailApi = require('./recommend-track-detail')
+const recommendPlayApis = require('./recommend-play')
+const recommendLocalPlayApis = require('./recommend-local-play')
 
 module.exports = [
   healthApi,
@@ -38,4 +42,8 @@ module.exports = [
   videoDownloadApi,
   videoDownloadAudioApi,
   systemLogsApi,
+  recommendSongTabApi,
+  recommendTrackDetailApi,
+  ...recommendPlayApis,
+  ...recommendLocalPlayApis,
 ]
