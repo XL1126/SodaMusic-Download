@@ -1,13 +1,11 @@
 /**
  * 汽水推荐：本机播放
- * POST /api/recommend/local-play     在运行项目的电脑上播放音频
- * POST /api/recommend/local-control  pause / resume / stop
- * GET  /api/recommend/local-status   查询本机播放状态
  */
 
 const { fixed } = require('../config/qishui-auth')
-const { downloadTrackMedia, fetchTrackPayload } = require('../utils/track-download')
+const { fetchTrackPayload } = require('../utils/track-download')
 const { extractPlayMetaFromTrackPayload } = require('../utils/recommend-utils')
+const { getPlayableAudio, issuePlayToken } = require('../utils/play-cache')
 const {
   startLocalPlayback,
   sendControl,
@@ -40,32 +38,34 @@ module.exports = [
       try {
         recLogger.info('recommend.localPlayRequest', { track_id })
 
-        const detail = await fetchTrackPayload({
-          aid: fixed.aid,
+        const playable = await getPlayableAudio({
           sessionid,
-          track_id,
-        })
-        const meta = extractPlayMetaFromTrackPayload(detail)
-
-        const media = await downloadTrackMedia({
-          aid: fixed.aid,
-          sessionid,
-          track_id,
-          quality: 'highest',
-        })
-
-        const status = startLocalPlayback({
-          buffer: media.buffer,
-          contentType: media.contentType,
-          title: meta.name || media.fileName || '未知曲目',
-          artist: meta.artistText || '',
-          cover: meta.cover || '',
           trackId: track_id,
+          quality: 'lowest',
+          useCache: true,
+        })
+
+        const meta = playable.meta || extractPlayMetaFromTrackPayload(
+          await fetchTrackPayload({ aid: fixed.aid, sessionid, track_id }).catch(() => ({})),
+        )
+
+        const token = issuePlayToken({ sessionid, trackId: track_id })
+        const port = Number(process.env.PORT || 3001)
+
+        const status = await startLocalPlayback({
+          buffer: playable.buffer,
+          contentType: playable.contentType,
+          title: meta?.name || playable.fileName || '未知曲目',
+          artist: meta?.artistText || '',
+          cover: meta?.cover || '',
+          trackId: track_id,
+          playerToken: token,
+          port,
         })
 
         res.json({
           status_code: 0,
-          message: '本机播放已启动',
+          message: status.message || '本机播放已启动',
           track: meta,
           local: status,
         })

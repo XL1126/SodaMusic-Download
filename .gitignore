@@ -1,6 +1,9 @@
 node_modules/
 logs/
 dist/
+research/sodamusic-asar-extract/
+research/sodamusic-asar-tools/
+research/extract-scripts/
 .DS_Store
 *.log
 .env

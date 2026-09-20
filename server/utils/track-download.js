@@ -284,9 +284,14 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   return trackPayload
 }
 
-async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.aid }) {
+/**
+ * 下载并解密曲目。
+ * @param {object} options
+ * @param {boolean} [options.skipFlacTags] 播放场景可跳过 FLAC 标签/封面写入，加快起播
+ */
+async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.aid, skipFlacTags = false }) {
   const overallStart = Date.now()
-  trackLogger.info('track.downloadStart', { track_id, quality, aid })
+  trackLogger.info('track.downloadStart', { track_id, quality, aid, skipFlacTags })
 
   const flacMetadataWriter = new FlacMetadataWriter()
   const trackPayload = await fetchTrackPayload({ aid, sessionid, track_id })
@@ -487,7 +492,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
 
   let outputBuffer = result.buffer
 
-  if (result.extension === '.flac') {
+  if (result.extension === '.flac' && !skipFlacTags) {
     trackLogger.debug(`Writing FLAC metadata`, { track_id })
     const metaStart = Date.now()
     try {

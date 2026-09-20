@@ -88,10 +88,11 @@ module.exports = {
         itemCount: items.length,
         trackCount: tracks.length,
         hasMore: Boolean(payload?.has_more),
+        sampleKeys: items[0] ? Object.keys(items[0]).slice(0, 20) : [],
         elapsedMs: Date.now() - startTime,
       })
 
-      // 兜底：若 Feed 结构无法解析出曲目，尝试从 media_resources / data 抽取
+      // 兜底：多路径抽取曲目
       let finalTracks = tracks
       if (finalTracks.length === 0) {
         const altSources = [
@@ -99,11 +100,39 @@ module.exports = {
           payload?.data?.items,
           payload?.data?.media_resources,
           payload?.extra?.items,
+          payload?.tracks,
+          payload?.data?.tracks,
+          payload?.cards,
+          payload?.data?.cards,
         ]
         for (const source of altSources) {
           if (!Array.isArray(source)) continue
           finalTracks = source.map((item) => normalizeRecommendTrack(item)).filter(Boolean)
           if (finalTracks.length > 0) break
+        }
+
+        // 再兜底：深度扫描对象数组中的 track-like 结构
+        if (finalTracks.length === 0) {
+          const deepScan = (node, depth = 0) => {
+            if (!node || depth > 4) return []
+            if (Array.isArray(node)) {
+              const mapped = node.map((x) => normalizeRecommendTrack(x)).filter(Boolean)
+              if (mapped.length) return mapped
+              for (const child of node) {
+                const found = deepScan(child, depth + 1)
+                if (found.length) return found
+              }
+              return []
+            }
+            if (typeof node === 'object') {
+              for (const value of Object.values(node)) {
+                const found = deepScan(value, depth + 1)
+                if (found.length) return found
+              }
+            }
+            return []
+          }
+          finalTracks = deepScan(payload)
         }
       }
 
@@ -113,6 +142,7 @@ module.exports = {
         has_more: Boolean(payload?.has_more),
         tracks: finalTracks,
         rawItemCount: items.length,
+        debugTopKeys: Object.keys(payload || {}).slice(0, 20),
       })
     } catch (error) {
       recLogger.error('recommend.songTabFailed', {

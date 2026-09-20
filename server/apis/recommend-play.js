@@ -1,52 +1,19 @@
 /**
- * 汽水推荐：播放资源
- * 1) POST /api/recommend/play-token  申请短时播放令牌
- * 2) GET  /api/recommend/stream      用令牌拉取解密后的音频流（浏览器 <audio> 用）
- * 3) POST /api/recommend/play-info   返回封面/歌词/可播信息（不直接下发加密 URL）
+ * 汽水推荐：播放资源（带缓存，起播更快）
  */
 
-const crypto = require('crypto')
-const { fixed } = require('../config/qishui-auth')
-const {
-  downloadTrackMedia,
-  fetchTrackPayload,
-  getTrackV2Payload,
-} = require('../utils/track-download')
+const { fetchTrackPayload } = require('../utils/track-download')
 const { extractPlayMetaFromTrackPayload } = require('../utils/recommend-utils')
+const {
+  getPlayableAudio,
+  issuePlayToken,
+  consumePlayToken,
+  TOKEN_TTL_MS,
+} = require('../utils/play-cache')
+const { fixed } = require('../config/qishui-auth')
 const { logger } = require('../utils/logger')
 
 const recLogger = logger.child('RecommendStream')
-
-const tokenStore = new Map()
-const TOKEN_TTL_MS = 10 * 60 * 1000
-
-function cleanupTokens() {
-  const now = Date.now()
-  for (const [key, value] of tokenStore.entries()) {
-    if (value.expiresAt <= now) tokenStore.delete(key)
-  }
-}
-
-function issueToken({ sessionid, trackId }) {
-  cleanupTokens()
-  const token = crypto.randomBytes(24).toString('hex')
-  tokenStore.set(token, {
-    sessionid,
-    trackId: String(trackId),
-    expiresAt: Date.now() + TOKEN_TTL_MS,
-  })
-  return token
-}
-
-async function preparePlayableBuffer({ sessionid, trackId }) {
-  const result = await downloadTrackMedia({
-    aid: fixed.aid,
-    sessionid,
-    track_id: trackId,
-    quality: 'highest',
-  })
-  return result
-}
 
 module.exports = [
   {
@@ -59,8 +26,7 @@ module.exports = [
         res.status(400).json({ message: 'sessionid and track_id are required' })
         return
       }
-      const token = issueToken({ sessionid, trackId: track_id })
-      recLogger.debug('recommend.tokenIssued', { track_id })
+      const token = issuePlayToken({ sessionid, trackId: track_id })
       res.json({
         token,
         stream_url: `/api/recommend/stream?token=${token}`,
@@ -74,30 +40,31 @@ module.exports = [
     path: '/api/recommend/stream',
     handler: async (req, res) => {
       const token = String(req.query.token || '')
-      const entry = tokenStore.get(token)
-      if (!entry || entry.expiresAt <= Date.now()) {
-        if (token) tokenStore.delete(token)
+      const entry = consumePlayToken(token)
+      if (!entry) {
         res.status(401).json({ message: '播放令牌无效或已过期' })
         return
       }
 
       try {
-        const result = await preparePlayableBuffer({
+        const playable = await getPlayableAudio({
           sessionid: entry.sessionid,
           trackId: entry.trackId,
+          quality: req.query.quality === 'highest' ? 'highest' : 'lowest',
+          useCache: true,
         })
 
         recLogger.info('recommend.streamReady', {
           track_id: entry.trackId,
-          contentType: result.contentType,
-          size: result.buffer?.length || 0,
+          contentType: playable.contentType,
+          size: playable.buffer?.length || 0,
         })
 
-        res.setHeader('Content-Type', result.contentType || 'audio/mp4')
-        res.setHeader('Content-Length', result.buffer.length)
-        res.setHeader('Cache-Control', 'no-store')
+        res.setHeader('Content-Type', playable.contentType || 'audio/mp4')
+        res.setHeader('Content-Length', playable.buffer.length)
+        res.setHeader('Cache-Control', 'private, max-age=600')
         res.setHeader('Accept-Ranges', 'none')
-        res.send(result.buffer)
+        res.send(playable.buffer)
       } catch (error) {
         recLogger.error('recommend.streamFailed', {
           track_id: entry.trackId,
@@ -120,20 +87,48 @@ module.exports = [
         return
       }
 
+      const token = issuePlayToken({ sessionid, trackId: track_id })
+      const streamUrl = `/api/recommend/stream?token=${token}`
+
       try {
-        const payload = await fetchTrackPayload({
+        const detailPromise = fetchTrackPayload({
           aid: fixed.aid,
           sessionid,
           track_id,
+        }).then((payload) => extractPlayMetaFromTrackPayload(payload)).catch((err) => {
+          recLogger.warn('recommend.playInfoMetaFailed', { track_id, error: err?.message })
+          return null
         })
-        const meta = extractPlayMetaFromTrackPayload(payload)
-        const token = issueToken({ sessionid, trackId: track_id })
+
+        const playablePromise = getPlayableAudio({
+          sessionid,
+          trackId: track_id,
+          quality: 'lowest',
+          useCache: true,
+        }).catch((err) => {
+          recLogger.warn('recommend.playInfoAudioFailed', { track_id, error: err?.message })
+          return null
+        })
+
+        const [detail, playable] = await Promise.all([detailPromise, playablePromise])
+        const meta = detail || playable?.meta || {
+          id: String(track_id),
+          name: '',
+          artists: [],
+          artistText: '',
+          album: '',
+          cover: '',
+          duration: 0,
+          lyricText: '',
+          lyricLines: [],
+        }
 
         res.json({
           status_code: 0,
           track: meta,
           token,
-          stream_url: `/api/recommend/stream?token=${token}`,
+          stream_url: streamUrl,
+          cache_ready: Boolean(playable?.buffer?.length),
         })
       } catch (error) {
         recLogger.error('recommend.playInfoFailed', {

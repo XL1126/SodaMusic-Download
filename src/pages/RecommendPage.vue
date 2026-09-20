@@ -67,8 +67,8 @@ const localTimer = ref(null)
 const hasLogin = computed(() => Boolean(getStoredSession()?.sessionid))
 const modeHint = computed(() => (
   playMode.value === 'browser'
-    ? '在浏览器中播放，并注册系统媒体信息'
-    : '通过后端在本机播放，系统可识别为音乐任务'
+    ? '在浏览器中播放，并注册系统媒体信息（推荐，默认）'
+    : '通过后端在本机播放；已适配无 Windows Media Player 的环境'
 ))
 
 function persistMode() {
@@ -214,11 +214,12 @@ async function playTrackAt(index, { autoplay = true } = {}) {
           await audio.play()
           playing.value = true
         }
+        // 预取下一首，降低切歌等待
+        prefetchRelative(1)
       } else {
         message.error('未能获取浏览器播放地址')
       }
     } else {
-      // 本机播放：清空浏览器音频
       if (audioRef.value) {
         audioRef.value.pause()
         audioRef.value.removeAttribute('src')
@@ -229,7 +230,8 @@ async function playTrackAt(index, { autoplay = true } = {}) {
       localStatus.value = payload?.local || null
       duration.value = Number(payload?.track?.duration || info.duration || localStatus.value?.duration || 0)
       playing.value = Boolean(localStatus.value?.playing)
-      message.success('已切换到本机播放')
+      const msg = payload?.local?.message || '已切换到本机播放'
+      message.success(msg)
       startLocalStatusPolling()
     }
   } catch (error) {
@@ -237,6 +239,20 @@ async function playTrackAt(index, { autoplay = true } = {}) {
   } finally {
     starting.value = false
   }
+}
+
+function prefetchRelative(step) {
+  if (tracks.value.length < 2) return
+  const next = currentIndex.value + step
+  const idx = next < 0
+    ? tracks.value.length - 1
+    : next >= tracks.value.length
+      ? 0
+      : next
+  const track = tracks.value[idx]
+  if (!track?.id) return
+  // 只预取播放信息（会触发服务端音频缓存），失败静默
+  fetchRecommendPlayInfo(track.id).catch(() => {})
 }
 
 function startLocalStatusPolling() {
@@ -469,8 +485,11 @@ onBeforeUnmount(() => {
                 {{ currentTrack?.album || (playMode === 'local' ? '本机播放模式' : '浏览器播放模式') }}
               </div>
               <n-tag v-if="playMode === 'local'" size="small" type="info" :bordered="false" round>
-                系统媒体任务
+                本机播放 · {{ localStatus?.engine || 'WinRT' }}
               </n-tag>
+              <n-text v-if="playMode === 'local' && localStatus?.message" depth="3" style="display:block;margin-top:6px;font-size:12px;">
+                {{ localStatus.message }}
+              </n-text>
             </div>
 
             <div ref="lyricListRef" class="lyric-panel">

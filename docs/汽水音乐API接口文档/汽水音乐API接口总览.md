@@ -33,7 +33,7 @@ HTTP DNS：客户端启动时配置 `dig.bdurl.net`（见 `src/app.ts`）。
 | `/webcast/*` | 直播相关零信任加签路径 |
 | `/seo_api/*` | SEO 友链模板 |
 
-接口总量：`logs/asar-extract/api-endpoints-precise.json` 共 **412** 条 method/path/fn 记录。
+接口总量：`research/sodamusic-asar-extract/api-endpoints-precise.json` 共 **412** 条 method/path/fn 记录。
 
 ---
 
@@ -158,10 +158,10 @@ PC 请求附加 Header（非必须业务逻辑，但与客户端行为一致）�
 
 | 材料 | 路径 |
 |------|------|
-| 精确接口表（412 条） | `logs/asar-extract/api-endpoints-precise.json` |
-| sourcemap 路径表 | `logs/asar-extract/api-paths-from-sourcemap.json` |
-| IDL 契约 | `logs/asar-extract/idl-contracts/*.ts` |
-| 客户端源码提取 | `logs/asar-extract/src-dump/*` |
+| 精确接口表（412 条） | `research/sodamusic-asar-extract/api-endpoints-precise.json` |
+| sourcemap 路径表 | `research/sodamusic-asar-extract/api-paths-from-sourcemap.json` |
+| IDL 契约 | `research/sodamusic-asar-extract/idl-contracts/*.ts` |
+| 客户端源码提取 | `research/sodamusic-asar-extract/src-dump/*` |
 | BDMS 安全分析 | `docs/REVERSE-ENGINEERING-BDMS-SDK.md` |
 | 随机播放机制 | `docs/汽水音乐随机播放机制.md` |
 | 本项目上游配置 | `server/config/qishui-auth.js` |
