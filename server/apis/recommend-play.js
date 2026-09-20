@@ -3,7 +3,11 @@
  */
 
 const { fetchTrackPayload } = require('../utils/track-download')
-const { extractPlayMetaFromTrackPayload } = require('../utils/recommend-utils')
+const {
+  extractPlayMetaFromTrackPayload,
+  toProxiedCover,
+} = require('../utils/recommend-utils')
+const { fetchTrackLyricFallback } = require('../utils/lyric-fetch')
 const {
   getPlayableAudio,
   issuePlayToken,
@@ -111,16 +115,35 @@ module.exports = [
         })
 
         const [detail, playable] = await Promise.all([detailPromise, playablePromise])
-        const meta = detail || playable?.meta || {
+        let meta = detail || playable?.meta || {
           id: String(track_id),
           name: '',
           artists: [],
           artistText: '',
           album: '',
           cover: '',
+          coverProxy: '',
           duration: 0,
           lyricText: '',
           lyricLines: [],
+        }
+
+        // 封面统一走代理，避免防盗链
+        if (meta.cover && !meta.coverProxy) {
+          meta = { ...meta, coverProxy: toProxiedCover(meta.cover) }
+        }
+
+        // 歌词缺失时回退请求
+        if (!meta.lyricLines || meta.lyricLines.length === 0) {
+          const { parseLrcToLines } = require('../utils/recommend-utils')
+          const lyricText = await fetchTrackLyricFallback({ sessionid, track_id })
+          if (lyricText) {
+            meta = {
+              ...meta,
+              lyricText,
+              lyricLines: parseLrcToLines(lyricText),
+            }
+          }
         }
 
         res.json({

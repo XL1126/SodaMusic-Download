@@ -20,8 +20,7 @@ const systemLogsApi = require('./system-logs')
 const recommendSongTabApi = require('./recommend-song-tab')
 const recommendTrackDetailApi = require('./recommend-track-detail')
 const recommendPlayApis = require('./recommend-play')
-const recommendLocalPlayApis = require('./recommend-local-play')
-const recommendLocalPlayerApis = require('./recommend-local-player')
+const recommendImageApi = require('./recommend-image')
 
 module.exports = [
   healthApi,
@@ -46,6 +45,5 @@ module.exports = [
   recommendSongTabApi,
   recommendTrackDetailApi,
   ...recommendPlayApis,
-  ...recommendLocalPlayApis,
-  ...recommendLocalPlayerApis,
+  recommendImageApi,
 ]

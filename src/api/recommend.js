@@ -1,3 +1,7 @@
+/**
+ * 汽水推荐前端 API（浏览器播放）
+ */
+
 import { getStoredSession } from '../utils/authStorage'
 import { fetchWithTimeout, parseApiResponse } from '../utils/apiHelpers'
 
@@ -43,33 +47,4 @@ export async function fetchRecommendPlayInfo(trackId) {
     }),
   })
   return parseApiResponse(response, '获取播放信息失败')
-}
-
-export async function startLocalPlay(trackId) {
-  const session = getSession()
-  const response = await fetchWithTimeout('/api/recommend/local-play', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...session,
-      track_id: trackId,
-    }),
-  }, 120000)
-  return parseApiResponse(response, '本机播放启动失败')
-}
-
-export async function controlLocalPlay(action) {
-  const response = await fetchWithTimeout('/api/recommend/local-control', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action }),
-  })
-  return parseApiResponse(response, '本机播放控制失败')
-}
-
-export async function fetchLocalPlayStatus() {
-  const response = await fetchWithTimeout('/api/recommend/local-status', {
-    method: 'GET',
-  })
-  return parseApiResponse(response, '获取本机播放状态失败')
 }

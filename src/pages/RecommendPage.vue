@@ -1,22 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   NButton,
   NCard,
-  NEmpty,
-  NFlex,
   NIcon,
   NImage,
-  NRadioButton,
-  NRadioGroup,
   NSpin,
   NTag,
   NText,
-  NTooltip,
   createDiscreteApi,
 } from 'naive-ui'
 import {
-  ListOutline,
   PauseOutline,
   PlaySkipBackOutline,
   PlaySkipForwardOutline,
@@ -26,11 +20,8 @@ import {
 } from '@vicons/ionicons5'
 import { getStoredSession } from '../utils/authStorage'
 import {
-  controlLocalPlay,
-  fetchLocalPlayStatus,
   fetchRecommendPlayInfo,
   fetchRecommendTracks,
-  startLocalPlay,
 } from '../api/recommend'
 
 const props = defineProps({
@@ -46,8 +37,6 @@ const props = defineProps({
 
 const { message } = createDiscreteApi(['message'])
 
-const PLAY_MODE_KEY = 'sodaRecommend.playMode'
-const playMode = ref(localStorage.getItem(PLAY_MODE_KEY) || 'browser')
 const tracks = ref([])
 const loading = ref(false)
 const starting = ref(false)
@@ -61,23 +50,10 @@ const lyricListRef = ref(null)
 const playing = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
-const localStatus = ref(null)
-const localTimer = ref(null)
+const coverSrc = ref('')
 
 const hasLogin = computed(() => Boolean(getStoredSession()?.sessionid))
-const modeHint = computed(() => (
-  playMode.value === 'browser'
-    ? '在浏览器中播放，并注册系统媒体信息（推荐，默认）'
-    : '通过后端在本机播放；已适配无 Windows Media Player 的环境'
-))
-
-function persistMode() {
-  localStorage.setItem(PLAY_MODE_KEY, playMode.value)
-}
-
-watch(playMode, () => {
-  persistMode()
-})
+const queueSize = computed(() => tracks.value.length)
 
 function formatTime(seconds) {
   const value = Number(seconds) || 0
@@ -90,71 +66,31 @@ function parseApiError(error, fallback) {
   return error?.message || fallback
 }
 
-async function loadTracks({ silent = false } = {}) {
-  if (!hasLogin.value) {
-    message.warning('请先登录后再使用汽水推荐')
-    return
-  }
-
-  if (!silent) loading.value = true
-  try {
-    const payload = await fetchRecommendTracks({
-      count: 20,
-      preferenceMode: 'fresh',
-      feedMode: 'track',
-      isFirstRequest: tracks.value.length === 0,
-      playedTracks: tracks.value.slice(0, 8).map((item) => ({ id: item.id })),
-    })
-
-    const nextTracks = Array.isArray(payload?.tracks) ? payload.tracks : []
-    if (nextTracks.length === 0) {
-      if (!silent) message.info('暂未获取到推荐曲目，可稍后重试或先在汽水音乐中听几首')
-      return
-    }
-
-    // 去重合并
-    const seen = new Set(tracks.value.map((item) => item.id))
-    const merged = [...tracks.value]
-    for (const item of nextTracks) {
-      if (!item?.id || seen.has(item.id)) continue
-      seen.add(item.id)
-      merged.push(item)
-    }
-    tracks.value = merged
-    if (currentIndex.value < 0 && merged.length > 0) {
-      // 不自动播放，仅准备列表
-    }
-  } catch (error) {
-    message.error(parseApiError(error, '获取汽水推荐失败'))
-  } finally {
-    loading.value = false
-  }
-}
-
-function clearLocalTimer() {
-  if (localTimer.value) {
-    clearInterval(localTimer.value)
-    localTimer.value = null
-  }
+function resolveCover(trackLike = {}) {
+  return (
+    trackLike.coverProxy
+    || (trackLike.cover ? `/api/recommend/image?src=${encodeURIComponent(trackLike.cover)}` : '')
+  )
 }
 
 function updateMediaSession(track) {
   if (!('mediaSession' in navigator) || !track) return
   try {
+    const artwork = coverSrc.value
+      ? [{ src: coverSrc.value, sizes: '400x400', type: 'image/jpeg' }]
+      : []
     navigator.mediaSession.metadata = new window.MediaMetadata({
       title: track.name || '未知曲目',
       artist: track.artistText || track.artists?.join(' / ') || '',
       album: track.album || '汽水推荐',
-      artwork: track.cover
-        ? [{ src: track.cover, sizes: '400x400', type: 'image/jpeg' }]
-        : [],
+      artwork,
     })
     navigator.mediaSession.setActionHandler('play', () => togglePlay())
     navigator.mediaSession.setActionHandler('pause', () => togglePlay())
     navigator.mediaSession.setActionHandler('previoustrack', () => playRelative(-1))
     navigator.mediaSession.setActionHandler('nexttrack', () => playRelative(1))
   } catch {
-    // 某些环境不支持 mediaSession
+    // ignore
   }
 }
 
@@ -163,11 +99,6 @@ function resetPlayerUi() {
   currentTime.value = 0
   duration.value = 0
   activeLyricIndex.value = -1
-}
-
-function stopLocalIfAny() {
-  clearLocalTimer()
-  localStatus.value = null
 }
 
 async function ensurePlayInfo(track) {
@@ -180,100 +111,12 @@ async function ensurePlayInfo(track) {
     artists: detail.artists?.length ? detail.artists : track.artists,
     album: detail.album || track.album,
     cover: detail.cover || track.cover,
+    coverProxy: detail.coverProxy || resolveCover(detail.cover || track.cover),
     duration: detail.duration || track.duration || 0,
     lyricLines: detail.lyricLines || [],
     lyricText: detail.lyricText || '',
     streamUrl: payload?.stream_url || '',
   }
-}
-
-async function playTrackAt(index, { autoplay = true } = {}) {
-  if (index < 0 || index >= tracks.value.length) return
-  const track = tracks.value[index]
-  currentIndex.value = index
-  starting.value = true
-  resetPlayerUi()
-
-  try {
-    const info = await ensurePlayInfo(track)
-    currentTrack.value = info
-    lyricLines.value = info.lyricLines || []
-    duration.value = info.duration || 0
-    tracks.value[index] = { ...track, ...info }
-    updateMediaSession(info)
-
-    if (playMode.value === 'browser') {
-      stopLocalIfAny()
-      streamUrl.value = info.streamUrl || ''
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      const audio = audioRef.value
-      if (audio && streamUrl.value) {
-        audio.src = streamUrl.value
-        audio.load()
-        if (autoplay) {
-          await audio.play()
-          playing.value = true
-        }
-        // 预取下一首，降低切歌等待
-        prefetchRelative(1)
-      } else {
-        message.error('未能获取浏览器播放地址')
-      }
-    } else {
-      if (audioRef.value) {
-        audioRef.value.pause()
-        audioRef.value.removeAttribute('src')
-        audioRef.value.load()
-      }
-      streamUrl.value = ''
-      const payload = await startLocalPlay(track.id)
-      localStatus.value = payload?.local || null
-      duration.value = Number(payload?.track?.duration || info.duration || localStatus.value?.duration || 0)
-      playing.value = Boolean(localStatus.value?.playing)
-      const msg = payload?.local?.message || '已切换到本机播放'
-      message.success(msg)
-      startLocalStatusPolling()
-    }
-  } catch (error) {
-    message.error(parseApiError(error, '播放失败'))
-  } finally {
-    starting.value = false
-  }
-}
-
-function prefetchRelative(step) {
-  if (tracks.value.length < 2) return
-  const next = currentIndex.value + step
-  const idx = next < 0
-    ? tracks.value.length - 1
-    : next >= tracks.value.length
-      ? 0
-      : next
-  const track = tracks.value[idx]
-  if (!track?.id) return
-  // 只预取播放信息（会触发服务端音频缓存），失败静默
-  fetchRecommendPlayInfo(track.id).catch(() => {})
-}
-
-function startLocalStatusPolling() {
-  clearLocalTimer()
-  localTimer.value = setInterval(async () => {
-    try {
-      const payload = await fetchLocalPlayStatus()
-      localStatus.value = payload?.local || null
-      playing.value = Boolean(payload?.local?.playing)
-      currentTime.value = Number(payload?.local?.position || 0)
-      if (Number(payload?.local?.duration) > 0) {
-        duration.value = Number(payload.local.duration)
-      }
-      syncLyricIndex(currentTime.value)
-      if (payload?.local && payload.local.playing === false && Number(payload.local.position) > 0 && /结束/.test(payload.local.message || '')) {
-        playRelative(1)
-      }
-    } catch {
-      // 忽略轮询错误
-    }
-  }, 800)
 }
 
 function syncLyricIndex(time) {
@@ -302,44 +145,132 @@ function scrollLyricIntoView(index) {
   container.scrollTo({ top: Math.max(offset, 0), behavior: 'smooth' })
 }
 
-async function togglePlay() {
-  if (!currentTrack.value) {
-    if (tracks.value.length > 0) {
-      await playTrackAt(currentIndex.value >= 0 ? currentIndex.value : 0)
-    }
+async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
+  if (!hasLogin.value && !props.isAuthenticated) {
+    message.warning('请先登录后再使用汽水推荐')
     return
   }
 
-  if (playMode.value === 'browser') {
-    const audio = audioRef.value
-    if (!audio) return
-    if (audio.paused) {
+  loading.value = true
+  try {
+    const payload = await fetchRecommendTracks({
+      count: 20,
+      preferenceMode: 'fresh',
+      feedMode: 'track',
+      isFirstRequest: tracks.value.length === 0,
+      playedTracks: tracks.value.slice(0, 8).map((item) => ({ id: item.id })),
+    })
+
+    const nextTracks = Array.isArray(payload?.tracks) ? payload.tracks : []
+    if (nextTracks.length === 0) {
+      message.info('暂未获取到推荐曲目，可稍后重试或先在汽水音乐中听几首')
+      return
+    }
+
+    const seen = new Set(tracks.value.map((item) => item.id))
+    const merged = [...tracks.value]
+    for (const item of nextTracks) {
+      if (!item?.id || seen.has(item.id)) continue
+      seen.add(item.id)
+      merged.push(item)
+    }
+    tracks.value = merged
+
+    if (autoplay && currentIndex.value < 0) {
+      await playTrackAt(0)
+    } else if (currentIndex.value < 0 && merged.length > 0) {
+      // 静默准备第一首信息，不强制播放
+      starting.value = true
       try {
+        const info = await ensurePlayInfo(merged[0])
+        currentIndex.value = 0
+        currentTrack.value = info
+        tracks.value[0] = { ...merged[0], ...info }
+        lyricLines.value = info.lyricLines || []
+        duration.value = info.duration || 0
+        coverSrc.value = resolveCover(info)
+        streamUrl.value = info.streamUrl || ''
+        updateMediaSession(info)
+      } catch {
+        // ignore prepare errors
+      } finally {
+        starting.value = false
+      }
+    }
+  } catch (error) {
+    message.error(parseApiError(error, '获取汽水推荐失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function playTrackAt(index, { autoplay = true } = {}) {
+  if (!tracks.value.length) {
+    await loadQueueAndMaybePlay({ autoplay: true })
+    return
+  }
+  if (index < 0 || index >= tracks.value.length) return
+
+  const track = tracks.value[index]
+  currentIndex.value = index
+  starting.value = true
+  resetPlayerUi()
+
+  try {
+    const info = await ensurePlayInfo(track)
+    currentTrack.value = info
+    lyricLines.value = info.lyricLines || []
+    duration.value = info.duration || 0
+    tracks.value[index] = { ...track, ...info }
+    coverSrc.value = resolveCover(info)
+    streamUrl.value = info.streamUrl || ''
+    updateMediaSession(info)
+
+    const audio = audioRef.value
+    if (audio && streamUrl.value) {
+      audio.src = streamUrl.value
+      audio.load()
+      if (autoplay) {
         await audio.play()
         playing.value = true
-      } catch (error) {
-        message.error(parseApiError(error, '播放失败'))
       }
     } else {
-      audio.pause()
-      playing.value = false
+      message.error('未能获取浏览器播放地址')
     }
+  } catch (error) {
+    message.error(parseApiError(error, '播放失败'))
+  } finally {
+    starting.value = false
+  }
+}
+
+async function togglePlay() {
+  if (!currentTrack.value || !streamUrl.value) {
+    await playTrackAt(currentIndex.value >= 0 ? currentIndex.value : 0)
     return
   }
 
-  // 本机
-  const action = playing.value ? 'pause' : 'resume'
-  try {
-    const payload = await controlLocalPlay(action)
-    localStatus.value = payload?.local || null
-    playing.value = Boolean(payload?.local?.playing)
-  } catch (error) {
-    message.error(parseApiError(error, '控制失败'))
+  const audio = audioRef.value
+  if (!audio) return
+  if (audio.paused) {
+    try {
+      if (!audio.src && streamUrl.value) {
+        audio.src = streamUrl.value
+        audio.load()
+      }
+      await audio.play()
+      playing.value = true
+    } catch (error) {
+      message.error(parseApiError(error, '播放失败'))
+    }
+  } else {
+    audio.pause()
+    playing.value = false
   }
 }
 
 async function playRelative(step) {
-  if (tracks.value.length === 0) return
+  if (!tracks.value.length) return
   let next = currentIndex.value + step
   if (next < 0) next = tracks.value.length - 1
   if (next >= tracks.value.length) next = 0
@@ -364,24 +295,10 @@ async function onAudioEnded() {
 function onSeekInput(event) {
   const value = Number(event.target.value) || 0
   currentTime.value = value
-  if (playMode.value === 'browser' && audioRef.value) {
+  if (audioRef.value) {
     audioRef.value.currentTime = value
   }
   syncLyricIndex(value)
-}
-
-async function onSeekChange() {
-  if (playMode.value === 'local') {
-    message.info('本机播放暂不支持拖动进度，可在系统媒体控件中查看')
-  }
-}
-
-function handleModeChange(value) {
-  playMode.value = value
-  // 切换模式后若已有曲目，重新走播放链路
-  if (currentTrack.value && currentIndex.value >= 0) {
-    playTrackAt(currentIndex.value)
-  }
 }
 
 const progressPercent = computed(() => {
@@ -391,12 +308,11 @@ const progressPercent = computed(() => {
 
 onMounted(async () => {
   if (props.isAuthenticated || hasLogin.value) {
-    await loadTracks()
+    await loadQueueAndMaybePlay({ autoplay: false })
   }
 })
 
 onBeforeUnmount(() => {
-  clearLocalTimer()
   try {
     audioRef.value?.pause()
   } catch {
@@ -419,85 +335,58 @@ onBeforeUnmount(() => {
           </n-tag>
         </div>
         <n-text depth="3" class="mode-hint">
-          {{ modeHint }}
+          在浏览器中播放汽水随机推荐；封面与歌词走本地代理，更稳定。
         </n-text>
       </div>
 
-      <div class="toolbar-right">
-        <n-radio-group
-          :value="playMode"
-          size="small"
-          @update:value="handleModeChange"
-        >
-          <n-radio-button value="browser">
-            浏览器播放
-          </n-radio-button>
-          <n-radio-button value="local">
-            本机播放
-          </n-radio-button>
-        </n-radio-group>
-        <n-tooltip>
-          <template #trigger>
-            <n-button secondary size="small" :loading="loading" @click="loadTracks()">
-              <template #icon>
-                <n-icon>
-                  <refresh-outline />
-                </n-icon>
-              </template>
-              换一批
-            </n-button>
-          </template>
-          拉取新的随机推荐曲目
-        </n-tooltip>
-      </div>
+      <n-button secondary size="small" :loading="loading" @click="loadQueueAndMaybePlay({ autoplay: false })">
+        <template #icon>
+          <n-icon>
+            <refresh-outline />
+          </n-icon>
+        </template>
+        换一批
+      </n-button>
     </div>
 
-    <div class="content-grid">
+    <n-spin :show="loading || starting">
       <n-card class="player-card" size="small" :bordered="true">
         <div class="player-body">
           <div class="cover-wrap">
             <n-image
-              v-if="currentTrack?.cover"
+              v-if="coverSrc"
               class="cover"
-              :src="currentTrack.cover"
+              :src="coverSrc"
               object-fit="cover"
-              :alt="currentTrack.name"
-              width="220"
-              height="220"
+              :alt="currentTrack?.name || 'cover'"
+              width="240"
+              height="240"
+              :img-props="{ referrerpolicy: 'no-referrer' }"
+              @error="coverSrc = ''"
             />
             <div v-else class="cover placeholder">
-              <n-icon size="48" color="#18a058">
+              <n-icon size="52" color="#18a058">
                 <radio-outline />
               </n-icon>
             </div>
-            <div class="cover-glow" />
           </div>
 
           <div class="meta-lyric">
             <div class="meta-block">
               <div class="track-name">
-                {{ currentTrack?.name || '选择一首推荐曲目开始播放' }}
+                {{ currentTrack?.name || '点击播放，开始收听汽水推荐' }}
               </div>
               <div class="track-artist">
-                {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '汽水推荐 · 随机音乐' }}
+                {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '随机音乐 · 浏览器播放' }}
               </div>
               <div class="track-album">
-                {{ currentTrack?.album || (playMode === 'local' ? '本机播放模式' : '浏览器播放模式') }}
+                {{ currentTrack?.album || (queueSize ? `队列 ${queueSize} 首` : '等待推荐队列') }}
               </div>
-              <n-tag v-if="playMode === 'local'" size="small" type="info" :bordered="false" round>
-                本机播放 · {{ localStatus?.engine || 'WinRT' }}
-              </n-tag>
-              <n-text v-if="playMode === 'local' && localStatus?.message" depth="3" style="display:block;margin-top:6px;font-size:12px;">
-                {{ localStatus.message }}
-              </n-text>
             </div>
 
             <div ref="lyricListRef" class="lyric-panel">
-              <div
-                v-if="!lyricLines.length"
-                class="lyric-empty"
-              >
-                {{ currentTrack ? '暂无歌词或歌词加载中' : '歌词将在此滚动显示' }}
+              <div v-if="!lyricLines.length" class="lyric-empty">
+                {{ currentTrack ? '暂无歌词' : '歌词将在此滚动显示' }}
               </div>
               <div
                 v-for="(line, index) in lyricLines"
@@ -523,13 +412,12 @@ onBeforeUnmount(() => {
             :value="currentTime"
             :style="{ '--progress': `${progressPercent}%` }"
             @input="onSeekInput"
-            @change="onSeekChange"
           />
           <span class="time">{{ formatTime(duration) }}</span>
         </div>
 
         <div class="controls">
-          <n-button secondary circle size="large" :disabled="!tracks.length" @click="playRelative(-1)">
+          <n-button secondary circle size="large" :disabled="!queueSize" @click="playRelative(-1)">
             <template #icon>
               <n-icon><play-skip-back-outline /></n-icon>
             </template>
@@ -539,7 +427,7 @@ onBeforeUnmount(() => {
             circle
             size="large"
             :loading="starting"
-            :disabled="!tracks.length && !currentTrack"
+            :disabled="!queueSize && !currentTrack"
             @click="togglePlay"
           >
             <template #icon>
@@ -549,7 +437,7 @@ onBeforeUnmount(() => {
               </n-icon>
             </template>
           </n-button>
-          <n-button secondary circle size="large" :disabled="!tracks.length" @click="playRelative(1)">
+          <n-button secondary circle size="large" :disabled="!queueSize" @click="playRelative(1)">
             <template #icon>
               <n-icon><play-skip-forward-outline /></n-icon>
             </template>
@@ -565,58 +453,7 @@ onBeforeUnmount(() => {
           @pause="playing = false"
         />
       </n-card>
-
-      <n-card class="list-card" size="small" :bordered="true">
-        <div class="list-header">
-          <n-flex align="center" :size="8">
-            <n-icon color="#18a058"><list-outline /></n-icon>
-            <span>推荐列表</span>
-            <n-tag size="small" :bordered="false">{{ tracks.length }}</n-tag>
-          </n-flex>
-        </div>
-
-        <n-spin :show="loading && tracks.length === 0">
-          <n-empty
-            v-if="!tracks.length && !loading"
-            description="暂无推荐。请确认已登录，然后点击「换一批」"
-          >
-            <template #extra>
-              <n-button type="primary" size="small" @click="loadTracks()">
-                获取推荐
-              </n-button>
-            </template>
-          </n-empty>
-
-          <div v-else class="track-list">
-            <button
-              v-for="(item, index) in tracks"
-              :key="item.id"
-              type="button"
-              class="track-item"
-              :class="{ active: index === currentIndex }"
-              @click="playTrackAt(index)"
-            >
-              <span class="idx">{{ String(index + 1).padStart(2, '0') }}</span>
-              <img
-                v-if="item.cover"
-                class="thumb"
-                :src="item.cover"
-                :alt="item.name"
-                referrerpolicy="no-referrer"
-              />
-              <div v-else class="thumb placeholder-thumb" />
-              <div class="item-main">
-                <div class="item-name">{{ item.name }}</div>
-                <div class="item-artist">{{ item.artistText || item.artists?.join(' / ') || '未知歌手' }}</div>
-              </div>
-              <span class="item-duration">
-                {{ item.duration ? formatTime(item.duration) : '--:--' }}
-              </span>
-            </button>
-          </div>
-        </n-spin>
-      </n-card>
-    </div>
+    </n-spin>
   </div>
 </template>
 
@@ -653,37 +490,15 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.content-grid {
-  display: grid;
-  grid-template-columns: minmax(320px, 1.1fr) minmax(280px, 0.9fr);
-  gap: 16px;
-  align-items: stretch;
-}
-
-@media (max-width: 960px) {
-  .content-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.player-card,
-.list-card {
+.player-card {
   border-radius: 14px;
-  height: 100%;
 }
 
 .player-body {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 16px;
-  min-height: 280px;
+  grid-template-columns: 240px 1fr;
+  gap: 20px;
+  min-height: 300px;
 }
 
 @media (max-width: 720px) {
@@ -693,33 +508,28 @@ onBeforeUnmount(() => {
 }
 
 .cover-wrap {
-  position: relative;
-  width: 220px;
-  height: 220px;
+  width: 240px;
+  max-width: 100%;
 }
 
 @media (max-width: 720px) {
   .cover-wrap {
-    width: 100%;
-    max-width: 260px;
+    width: min(240px, 70vw);
     margin: 0 auto;
   }
 }
 
 .cover {
-  width: 220px;
-  height: 220px;
+  width: 240px;
+  height: 240px;
   border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
-  position: relative;
-  z-index: 1;
 }
 
 @media (max-width: 720px) {
   .cover {
     width: 100%;
-    max-width: 260px;
   }
 }
 
@@ -731,15 +541,6 @@ onBeforeUnmount(() => {
     radial-gradient(circle at 30% 20%, rgba(24, 160, 88, 0.25), transparent 50%),
     linear-gradient(145deg, #1f2a24, #121816);
   border: 1px solid rgba(24, 160, 88, 0.25);
-}
-
-.cover-glow {
-  position: absolute;
-  inset: 20px;
-  border-radius: 16px;
-  background: rgba(24, 160, 88, 0.18);
-  filter: blur(24px);
-  z-index: 0;
 }
 
 .meta-lyric {
@@ -754,14 +555,14 @@ onBeforeUnmount(() => {
 }
 
 .track-name {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 650;
   line-height: 1.35;
   word-break: break-word;
 }
 
 .track-artist {
-  margin-top: 6px;
+  margin-top: 8px;
   opacity: 0.85;
 }
 
@@ -773,8 +574,8 @@ onBeforeUnmount(() => {
 
 .lyric-panel {
   flex: 1;
-  min-height: 160px;
-  max-height: 220px;
+  min-height: 180px;
+  max-height: 260px;
   overflow: auto;
   padding: 8px 4px;
   mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
@@ -782,7 +583,7 @@ onBeforeUnmount(() => {
 
 .lyric-empty {
   height: 100%;
-  min-height: 140px;
+  min-height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -792,11 +593,10 @@ onBeforeUnmount(() => {
 
 .lyric-line {
   text-align: center;
-  padding: 6px 8px;
+  padding: 7px 8px;
   font-size: 14px;
   line-height: 1.5;
   opacity: 0.45;
-  transform: scale(0.98);
   transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
 }
 
@@ -818,7 +618,7 @@ onBeforeUnmount(() => {
   grid-template-columns: 44px 1fr 44px;
   gap: 10px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
 .time {
@@ -846,109 +646,13 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: #18a058;
   border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-}
-
-.progress::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #18a058;
-  border: 2px solid #fff;
 }
 
 .controls {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 16px;
-}
-
-.list-header {
-  margin-bottom: 10px;
-  font-weight: 600;
-}
-
-.track-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 560px;
-  overflow: auto;
-}
-
-.track-item {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 28px 40px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 10px;
-  padding: 8px;
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-}
-
-.track-item:hover,
-.track-item:focus-visible {
-  background: rgba(24, 160, 88, 0.08);
-  outline: none;
-}
-
-.track-item.active {
-  border-color: rgba(24, 160, 88, 0.35);
-  background: rgba(24, 160, 88, 0.12);
-}
-
-.idx {
-  font-size: 12px;
-  opacity: 0.55;
-  font-variant-numeric: tabular-nums;
-}
-
-.thumb {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  object-fit: cover;
-  background: rgba(127, 127, 127, 0.15);
-}
-
-.placeholder-thumb {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: rgba(127, 127, 127, 0.15);
-}
-
-.item-main {
-  min-width: 0;
-}
-
-.item-name {
-  font-size: 14px;
-  font-weight: 550;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.item-artist {
-  margin-top: 2px;
-  font-size: 12px;
-  opacity: 0.65;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.item-duration {
-  font-size: 12px;
-  opacity: 0.55;
-  font-variant-numeric: tabular-nums;
 }
 </style>
