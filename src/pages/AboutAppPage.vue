@@ -21,7 +21,7 @@ import {
 
 const appInfo = {
   name: 'SodaMusic-Download',
-  version: 'v2.1.0',
+  version: 'v2.2.0',
   description: '一个本地优先的汽水音乐工具，支持二维码登录、单曲解析、资源详情查看、歌单浏览和批量打包下载。',
 }
 

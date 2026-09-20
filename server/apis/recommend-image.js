@@ -8,7 +8,8 @@ const { logger } = require('../utils/logger')
 
 const imgLogger = logger.child('RecommendImage')
 
-const ALLOW_HOST_RE = /(^|\.)(qishui\.com|douyin\.com|byteimg\.com|snssdk\.com|bytedance\.com|zijieapi\.com)$/i
+// 汽水/抖音/字节系图片 CDN 主机（官方分享页封面在 p3-luna.douyinpic.com）
+const ALLOW_HOST_RE = /(^|\.)(qishui\.com|douyin\.com|douyinpic\.com|douyinstatic\.com|byteimg\.com|bytescm\.com|ibytedtos\.com|ibytedapm\.com|snssdk\.com|bytedance\.com|bytedance\.net|zijieapi\.com|pstatp\.com|ecombdimg\.com)$/i
 
 function isAllowedImageUrl(raw) {
   try {
@@ -27,6 +28,12 @@ module.exports = {
   handler: async (req, res) => {
     const src = String(req.query.src || '')
     if (!src || !isAllowedImageUrl(src)) {
+      try {
+        const host = new URL(src).hostname
+        imgLogger.warn('recommend.imageHostRejected', { host, src: src.slice(0, 120) })
+      } catch {
+        // ignore
+      }
       res.status(400).json({ message: '非法图片地址' })
       return
     }
@@ -42,19 +49,31 @@ module.exports = {
       }, 20 * 1000)
 
       if (!upstream.ok) {
-        imgLogger.warn('recommend.imageUpstreamFailed', { status: upstream.status, src: src.slice(0, 120) })
+        imgLogger.warn('recommend.imageUpstreamFailed', {
+          status: upstream.status,
+          src: src.slice(0, 120),
+        })
         res.status(upstream.status).json({ message: '封面拉取失败' })
         return
       }
 
       const contentType = upstream.headers.get('content-type') || 'image/jpeg'
       const buffer = Buffer.from(await upstream.arrayBuffer())
-      res.setHeader('Content-Type', contentType)
+      if (!buffer.length) {
+        res.status(502).json({ message: '封面内容为空' })
+        return
+      }
+
+      res.setHeader('Content-Type', contentType.includes('image/') ? contentType : 'image/jpeg')
       res.setHeader('Content-Length', buffer.length)
       res.setHeader('Cache-Control', 'public, max-age=86400')
+      res.setHeader('Access-Control-Allow-Origin', '*')
       res.send(buffer)
     } catch (error) {
-      imgLogger.error('recommend.imageFailed', { error: error?.message, src: src.slice(0, 120) })
+      imgLogger.error('recommend.imageFailed', {
+        error: error?.message,
+        src: src.slice(0, 120),
+      })
       res.status(500).json({ message: error?.message || '封面代理失败' })
     }
   },

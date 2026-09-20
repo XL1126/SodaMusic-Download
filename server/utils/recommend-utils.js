@@ -15,10 +15,6 @@ function getFirstImageUrl(imageLike) {
   return ''
 }
 
-/**
- * 汽水图片 URLInfo：{ urls[], uri, template_prefix }
- * 与 ResourceDetailModal.resolveImageUrl 保持一致。
- */
 function resolveImageUrl(imageLike) {
   if (!imageLike) return ''
   if (typeof imageLike === 'string') return imageLike
@@ -44,10 +40,14 @@ function pickCoverUrl(track = {}) {
     resolveImageUrl(track.album?.url_cover)
     || resolveImageUrl(track.url_cover)
     || resolveImageUrl(track.cover)
+    || resolveImageUrl(track.cover_url)
     || resolveImageUrl(track.medium_cover_url)
     || resolveImageUrl(track.large_cover_url)
+    || resolveImageUrl(track.origin_cover)
     || resolveImageUrl(track.album?.cover)
+    || resolveImageUrl(track.album?.cover_url)
     || resolveImageUrl(track.album?.thumb_cover_url)
+    || resolveImageUrl(track.album?.img_url)
     || ''
   )
 }
@@ -78,6 +78,11 @@ function pickTrackFromFeedItem(item) {
   )
 }
 
+function toProxiedCover(url) {
+  if (!url) return ''
+  return `/api/recommend/image?src=${encodeURIComponent(url)}`
+}
+
 function normalizeRecommendTrack(raw) {
   const track = pickTrackFromFeedItem(raw) || raw
   if (!track || !(track.id || track.track_id || track.media_id)) {
@@ -105,11 +110,11 @@ function normalizeRecommendTrack(raw) {
 }
 
 /**
- * 解析歌词行为。
- * 支持：
- * 1) 标准 LRC：[mm:ss.xx]文本
- * 2) 毫秒戳：[12345]文本 / [12345.6]文本
- * 3) 汽水/类 KRC 行：[startMs,duration]文本（去掉 <词级时间> 标签）
+ * 解析歌词行，支持：
+ * - 标准 LRC [mm:ss.xx]
+ * - 毫秒 [12345]
+ * - KRC 行 [startMs,duration] + 词级 <ms,dur,flag>字
+ * 返回 { time, endTime, text, words? }
  */
 function parseLrcToLines(lyricText) {
   if (!lyricText || typeof lyricText !== 'string') return []
@@ -117,33 +122,45 @@ function parseLrcToLines(lyricText) {
   const rows = lyricText.replace(/\r\n/g, '\n').split('\n')
   const lines = []
 
+  const pushLine = (timeSec, rawText) => {
+    const source = String(rawText || '')
+    const wordMatches = [...source.matchAll(/<(\d+)\s*,\s*(\d+)\s*,\s*\d+>([^<]*)/g)]
+    let text = source
+    const words = []
+
+    if (wordMatches.length > 0) {
+      text = wordMatches.map((m) => m[3]).join('')
+      for (const m of wordMatches) {
+        const wText = m[3]
+        if (!wText) continue
+        words.push({ time: Number(m[1]) / 1000, text: wText })
+      }
+    } else {
+      text = source
+        .replace(/<[^>]*>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    if (!text) return
+    const line = { time: Number(timeSec) || 0, text }
+    if (words.length > 0) line.words = words
+    lines.push(line)
+  }
+
   for (const rawRow of rows) {
     const row = rawRow.trim()
     if (!row) continue
 
-    // [startMs,duration] content
     const krc = row.match(/^\[(\d+)\s*,\s*(\d+)\](.*)$/)
     if (krc) {
-      const startMs = Number(krc[1] || 0)
-      const text = String(krc[3] || '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (text) {
-        lines.push({ time: startMs / 1000, text })
-      }
+      pushLine(Number(krc[1] || 0) / 1000, krc[3] || '')
       continue
     }
 
-    // [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
     const lrcTags = [...row.matchAll(/\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g)]
     if (lrcTags.length > 0) {
-      const text = row
-        .replace(/\[[^\]]*\]/g, '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (!text) continue
+      const body = row.replace(/\[[^\]]*\]/g, '')
       for (const match of lrcTags) {
         const minutes = Number(match[1] || 0)
         const seconds = Number(match[2] || 0)
@@ -153,25 +170,17 @@ function parseLrcToLines(lyricText) {
           : fracRaw.length === 2
             ? Number(fracRaw) / 100
             : Number(fracRaw) / 1000
-        lines.push({ time: minutes * 60 + seconds + frac, text })
+        pushLine(minutes * 60 + seconds + frac, body)
       }
       continue
     }
 
-    // [12345] text（纯毫秒）
     const msTag = row.match(/^\[(\d{1,8})\](.*)$/)
     if (msTag) {
-      const text = String(msTag[2] || '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-      if (text) {
-        lines.push({ time: Number(msTag[1] || 0) / 1000, text })
-      }
+      pushLine(Number(msTag[1] || 0) / 1000, msTag[2] || '')
     }
   }
 
-  // 去重（同一时间同一句）
   const seen = new Set()
   const unique = []
   for (const line of lines) {
@@ -181,6 +190,12 @@ function parseLrcToLines(lyricText) {
     unique.push(line)
   }
   unique.sort((a, b) => a.time - b.time)
+
+  for (let i = 0; i < unique.length; i += 1) {
+    const next = unique[i + 1]
+    unique[i].endTime = next ? next.time : null
+  }
+
   return unique
 }
 
@@ -191,7 +206,6 @@ function flattenLyricNode(node, depth = 0) {
     return node.map((item) => flattenLyricNode(item, depth + 1)).filter(Boolean).join('\n')
   }
   if (typeof node === 'object') {
-    // 汽水客户端使用 lyric.content
     const preferred = [
       node.content,
       node.lyric,
@@ -205,7 +219,6 @@ function flattenLyricNode(node, depth = 0) {
       const text = flattenLyricNode(value, depth + 1)
       if (text && text.trim()) return text
     }
-    // 兜底：扫描所有字符串字段
     for (const value of Object.values(node)) {
       if (typeof value === 'string' && /\[/.test(value) && value.length > 5) {
         return value
@@ -245,16 +258,11 @@ function extractPlayMetaFromTrackPayload(payload) {
     artistText: artists.join(' / '),
     album: track.album?.name || '',
     cover,
-    coverProxy: cover ? `/api/recommend/image?src=${encodeURIComponent(cover)}` : '',
+    coverProxy: toProxiedCover(cover),
     duration: typeof track.duration === 'number' ? track.duration : 0,
     lyricText,
     lyricLines: parseLrcToLines(lyricText),
   }
-}
-
-function toProxiedCover(url) {
-  if (!url) return ''
-  return `/api/recommend/image?src=${encodeURIComponent(url)}`
 }
 
 module.exports = {

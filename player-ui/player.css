@@ -1,0 +1,351 @@
+/* 汽水推荐播放器 · 参考官方网页播放器气质（非布局照搬） */
+:root {
+  --soda-green: #00cb64;
+  --soda-green-soft: #31e44c;
+  --soda-green-glow: #acff79;
+  --soda-ink: #121212;
+  --soda-bg: #0b0f0d;
+  --soda-panel: rgba(18, 22, 20, 0.72);
+  --soda-text: #f4f7f5;
+  --soda-muted: rgba(244, 247, 245, 0.45);
+  --soda-line: rgba(244, 247, 245, 0.28);
+  --soda-active: #7dffb0;
+  --font: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--soda-bg);
+  color: var(--soda-text);
+  font-family: var(--font);
+}
+
+body {
+  min-height: 100vh;
+}
+
+.soda-player {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  padding: 20px;
+}
+
+.soda-bg {
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(0, 203, 100, 0.22), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(49, 228, 76, 0.12), transparent 35%),
+    radial-gradient(circle at 50% 80%, rgba(0, 0, 0, 0.55), transparent 50%),
+    linear-gradient(160deg, #101814, #070908 60%, #0d1410);
+  filter: blur(0px);
+  transform: scale(1.05);
+  z-index: 0;
+}
+
+.soda-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.soda-top,
+.soda-main,
+.soda-foot {
+  position: relative;
+  z-index: 1;
+}
+
+.soda-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.soda-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.soda-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--soda-green);
+  box-shadow: 0 0 12px rgba(0, 203, 100, 0.8);
+}
+
+.soda-badge {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--soda-ink);
+  background: linear-gradient(180deg, var(--soda-green-glow), var(--soda-green-soft));
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.soda-btn {
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.soda-btn.ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--soda-text);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.soda-btn.ghost:hover {
+  background: rgba(0, 203, 100, 0.15);
+  border-color: rgba(0, 203, 100, 0.35);
+}
+
+.soda-main {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 36px;
+  align-items: center;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+@media (max-width: 800px) {
+  .soda-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.soda-cover-wrap {
+  position: relative;
+  width: 280px;
+  height: 280px;
+  margin: 0 auto;
+}
+
+.soda-cover {
+  width: 280px;
+  height: 280px;
+  border-radius: 24px;
+  background:
+    linear-gradient(145deg, rgba(0, 203, 100, 0.25), rgba(0, 0, 0, 0.4)),
+    #1a221e center/cover no-repeat;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.soda-cover-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  color: var(--soda-green);
+  opacity: 0.85;
+}
+
+.soda-cover.has-image .soda-cover-fallback {
+  display: none;
+}
+
+.soda-vinyl {
+  position: absolute;
+  right: -48px;
+  top: 50%;
+  width: 180px;
+  height: 180px;
+  margin-top: -90px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center, #222 0 18%, #111 19% 22%, #1b1b1b 23% 100%);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  z-index: 1;
+  opacity: 0.9;
+}
+
+.soda-vinyl.playing {
+  animation: soda-spin 8s linear infinite;
+}
+
+@keyframes soda-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .soda-vinyl.playing { animation: none; }
+}
+
+.soda-panel {
+  min-width: 0;
+  background: var(--soda-panel);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 24px;
+  backdrop-filter: blur(16px);
+}
+
+.soda-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.soda-artist {
+  margin: 8px 0 0;
+  font-size: 15px;
+  color: var(--soda-active);
+}
+
+.soda-album {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--soda-muted);
+}
+
+.soda-lyric {
+  margin-top: 20px;
+  height: 180px;
+  overflow: auto;
+  padding: 8px 2px;
+  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+}
+
+.soda-lyric-line {
+  position: relative;
+  text-align: center;
+  padding: 8px 6px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--soda-line);
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.soda-lyric-line.active {
+  color: var(--soda-muted);
+  transform: scale(1.04);
+}
+
+.soda-lyric-line .base,
+.soda-lyric-line .fill {
+  display: block;
+}
+
+.soda-lyric-line .fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  bottom: 8px;
+  color: var(--soda-active);
+  font-weight: 650;
+  overflow: hidden;
+  white-space: nowrap;
+  width: 0%;
+  text-align: center;
+  pointer-events: none;
+  box-sizing: border-box;
+  padding: 0 6px;
+}
+
+.soda-lyric-line.active .fill {
+  /* progress width set inline */
+}
+
+.soda-progress {
+  margin-top: 22px;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  gap: 10px;
+  align-items: center;
+}
+
+.soda-time {
+  font-size: 12px;
+  color: var(--soda-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.soda-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.soda-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--soda-green), var(--soda-green-soft));
+}
+
+.soda-bar-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--soda-green);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.soda-controls {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+}
+
+.soda-ctrl {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--soda-text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.soda-ctrl.primary {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+  color: var(--soda-ink);
+  background: linear-gradient(180deg, var(--soda-green-glow), var(--soda-green));
+  box-shadow: 0 10px 28px rgba(0, 203, 100, 0.35);
+}
+
+.soda-ctrl:hover {
+  filter: brightness(1.08);
+}
+
+.soda-foot {
+  margin-top: 28px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--soda-muted);
+}

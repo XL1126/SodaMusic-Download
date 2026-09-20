@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>汽水推荐播放器 · 预览</title>
+  <link rel="stylesheet" href="./player.css" />
+</head>
+<body>
+  <div class="soda-player" id="player">
+    <div class="soda-bg" id="bg"></div>
+
+    <header class="soda-top">
+      <div class="soda-brand">
+        <span class="soda-dot"></span>
+        <span>汽水推荐</span>
+        <span class="soda-badge">随机播放</span>
+      </div>
+      <button type="button" class="soda-btn ghost" id="btnRefresh">换一批</button>
+    </header>
+
+    <main class="soda-main">
+      <div class="soda-cover-wrap">
+        <div class="soda-cover" id="cover">
+          <div class="soda-cover-fallback">♪</div>
+        </div>
+        <div class="soda-vinyl" id="vinyl"></div>
+      </div>
+
+      <section class="soda-panel">
+        <div class="soda-meta">
+          <h1 class="soda-title" id="title">我们就走到这吧</h1>
+          <p class="soda-artist" id="artist">浩铭</p>
+          <p class="soda-album" id="album">汽水推荐 · 浏览器播放</p>
+        </div>
+
+        <div class="soda-lyric" id="lyric">
+          <!-- lines injected by player.js -->
+        </div>
+
+        <div class="soda-progress">
+          <span class="soda-time" id="cur">00:00</span>
+          <div class="soda-bar" id="bar">
+            <div class="soda-bar-fill" id="fill"></div>
+            <div class="soda-bar-thumb" id="thumb"></div>
+          </div>
+          <span class="soda-time" id="dur">00:00</span>
+        </div>
+
+        <div class="soda-controls">
+          <button type="button" class="soda-ctrl" id="btnPrev" aria-label="上一首">⏮</button>
+          <button type="button" class="soda-ctrl primary" id="btnToggle" aria-label="播放">▶</button>
+          <button type="button" class="soda-ctrl" id="btnNext" aria-label="下一首">⏭</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="soda-foot">
+      UI 风格参考汽水官方网页播放器（忽略广告因素）· 仅本地预览
+    </footer>
+  </div>
+
+  <audio id="audio" preload="metadata"></audio>
+  <script src="./player.js"></script>
+</body>
+</html>

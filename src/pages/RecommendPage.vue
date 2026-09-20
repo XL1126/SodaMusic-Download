@@ -2,9 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   NButton,
-  NCard,
   NIcon,
-  NImage,
   NSpin,
   NTag,
   NText,
@@ -44,6 +42,7 @@ const currentIndex = ref(-1)
 const currentTrack = ref(null)
 const lyricLines = ref([])
 const activeLyricIndex = ref(-1)
+const activeLineProgress = ref(0)
 const streamUrl = ref('')
 const audioRef = ref(null)
 const lyricListRef = ref(null)
@@ -73,6 +72,53 @@ function resolveCover(trackLike = {}) {
   )
 }
 
+function lineProgress(line, next, time) {
+  if (!line) return 0
+  const start = Number(line.time) || 0
+  const end = line.endTime != null
+    ? Number(line.endTime)
+    : (next ? Number(next.time) : (duration.value || start + 3))
+  if (time <= start) return 0
+  if (end <= start) return time >= start ? 100 : 0
+  if (time >= end) return 100
+  return ((time - start) / (end - start)) * 100
+}
+
+function syncLyricIndex(time) {
+  const lines = lyricLines.value
+  if (!lines.length) {
+    activeLyricIndex.value = -1
+    activeLineProgress.value = 0
+    return
+  }
+
+  let idx = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    if (time + 0.05 >= lines[i].time) idx = i
+    else break
+  }
+
+  if (idx !== activeLyricIndex.value) {
+    activeLyricIndex.value = idx
+    scrollLyricIntoView(idx)
+  }
+
+  if (idx >= 0) {
+    activeLineProgress.value = lineProgress(lines[idx], lines[idx + 1], time)
+  } else {
+    activeLineProgress.value = 0
+  }
+}
+
+function scrollLyricIntoView(index) {
+  const container = lyricListRef.value
+  if (!container || index < 0) return
+  const node = container.querySelector(`[data-lyric-index="${index}"]`)
+  if (!node) return
+  const offset = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2
+  container.scrollTo({ top: Math.max(offset, 0), behavior: 'smooth' })
+}
+
 function updateMediaSession(track) {
   if (!('mediaSession' in navigator) || !track) return
   try {
@@ -99,6 +145,7 @@ function resetPlayerUi() {
   currentTime.value = 0
   duration.value = 0
   activeLyricIndex.value = -1
+  activeLineProgress.value = 0
 }
 
 async function ensurePlayInfo(track) {
@@ -119,32 +166,6 @@ async function ensurePlayInfo(track) {
   }
 }
 
-function syncLyricIndex(time) {
-  const lines = lyricLines.value
-  if (!lines.length) {
-    activeLyricIndex.value = -1
-    return
-  }
-  let idx = -1
-  for (let i = 0; i < lines.length; i += 1) {
-    if (time + 0.15 >= lines[i].time) idx = i
-    else break
-  }
-  if (idx !== activeLyricIndex.value) {
-    activeLyricIndex.value = idx
-    scrollLyricIntoView(idx)
-  }
-}
-
-function scrollLyricIntoView(index) {
-  const container = lyricListRef.value
-  if (!container || index < 0) return
-  const node = container.querySelector(`[data-lyric-index="${index}"]`)
-  if (!node) return
-  const offset = node.offsetTop - container.clientHeight / 2 + node.clientHeight / 2
-  container.scrollTo({ top: Math.max(offset, 0), behavior: 'smooth' })
-}
-
 async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
   if (!hasLogin.value && !props.isAuthenticated) {
     message.warning('请先登录后再使用汽水推荐')
@@ -163,7 +184,7 @@ async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
 
     const nextTracks = Array.isArray(payload?.tracks) ? payload.tracks : []
     if (nextTracks.length === 0) {
-      message.info('暂未获取到推荐曲目，可稍后重试或先在汽水音乐中听几首')
+      message.info('暂未获取到推荐曲目，可稍后重试')
       return
     }
 
@@ -178,8 +199,10 @@ async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
 
     if (autoplay && currentIndex.value < 0) {
       await playTrackAt(0)
-    } else if (currentIndex.value < 0 && merged.length > 0) {
-      // 静默准备第一首信息，不强制播放
+      return
+    }
+
+    if (currentIndex.value < 0 && merged.length > 0) {
       starting.value = true
       try {
         const info = await ensurePlayInfo(merged[0])
@@ -191,6 +214,7 @@ async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
         coverSrc.value = resolveCover(info)
         streamUrl.value = info.streamUrl || ''
         updateMediaSession(info)
+        syncLyricIndex(0)
       } catch {
         // ignore prepare errors
       } finally {
@@ -322,337 +346,384 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="recommend-page">
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <div class="title-row">
-          <n-icon size="20" color="#18a058">
-            <radio-outline />
-          </n-icon>
-          <span class="page-title">汽水推荐</span>
-          <n-tag size="small" round type="success" :bordered="false">
-            随机播放
-          </n-tag>
-        </div>
-        <n-text depth="3" class="mode-hint">
-          在浏览器中播放汽水随机推荐；封面与歌词走本地代理，更稳定。
-        </n-text>
-      </div>
+  <div class="soda-player-page">
+    <div class="soda-bg" />
 
+    <div class="soda-top">
+      <div class="soda-brand">
+        <n-icon size="18" color="#00cb64">
+          <radio-outline />
+        </n-icon>
+        <span>汽水推荐</span>
+        <n-tag size="small" round type="success" :bordered="false">
+          随机播放
+        </n-tag>
+      </div>
       <n-button secondary size="small" :loading="loading" @click="loadQueueAndMaybePlay({ autoplay: false })">
         <template #icon>
-          <n-icon>
-            <refresh-outline />
-          </n-icon>
+          <n-icon><refresh-outline /></n-icon>
         </template>
         换一批
       </n-button>
     </div>
 
     <n-spin :show="loading || starting">
-      <n-card class="player-card" size="small" :bordered="true">
-        <div class="player-body">
-          <div class="cover-wrap">
-            <n-image
-              v-if="coverSrc"
-              class="cover"
-              :src="coverSrc"
-              object-fit="cover"
-              :alt="currentTrack?.name || 'cover'"
-              width="240"
-              height="240"
-              :img-props="{ referrerpolicy: 'no-referrer' }"
-              @error="coverSrc = ''"
-            />
-            <div v-else class="cover placeholder">
-              <n-icon size="52" color="#18a058">
+      <div class="soda-main">
+        <div class="soda-cover-wrap">
+          <div
+            class="soda-cover"
+            :class="{ 'has-image': coverSrc }"
+            :style="coverSrc ? { backgroundImage: `url(${coverSrc})` } : null"
+          >
+            <div class="soda-cover-fallback">
+              <n-icon size="48" color="#00cb64">
                 <radio-outline />
               </n-icon>
             </div>
           </div>
+          <div class="soda-vinyl" :class="{ playing }" />
+        </div>
 
-          <div class="meta-lyric">
-            <div class="meta-block">
-              <div class="track-name">
-                {{ currentTrack?.name || '点击播放，开始收听汽水推荐' }}
-              </div>
-              <div class="track-artist">
-                {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '随机音乐 · 浏览器播放' }}
-              </div>
-              <div class="track-album">
-                {{ currentTrack?.album || (queueSize ? `队列 ${queueSize} 首` : '等待推荐队列') }}
-              </div>
+        <section class="soda-panel">
+          <div class="soda-meta">
+            <h1 class="soda-title">
+              {{ currentTrack?.name || '点击播放，开始收听汽水推荐' }}
+            </h1>
+            <p class="soda-artist">
+              {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '随机音乐' }}
+            </p>
+            <p class="soda-album">
+              {{ currentTrack?.album || '浏览器播放' }}
+              <span v-if="queueSize"> · 队列 {{ queueSize }} 首</span>
+            </p>
+          </div>
+
+          <div ref="lyricListRef" class="soda-lyric">
+            <div v-if="!lyricLines.length" class="soda-lyric-empty">
+              {{ currentTrack ? '暂无歌词' : '歌词将随播放进度逐句高亮' }}
             </div>
-
-            <div ref="lyricListRef" class="lyric-panel">
-              <div v-if="!lyricLines.length" class="lyric-empty">
-                {{ currentTrack ? '暂无歌词' : '歌词将在此滚动显示' }}
-              </div>
-              <div
-                v-for="(line, index) in lyricLines"
-                :key="`${index}-${line.time}`"
-                :data-lyric-index="index"
-                class="lyric-line"
-                :class="{ active: index === activeLyricIndex }"
-              >
-                {{ line.text }}
-              </div>
+            <div
+              v-for="(line, index) in lyricLines"
+              :key="`${index}-${line.time}-${line.text}`"
+              :data-lyric-index="index"
+              class="soda-lyric-line"
+              :class="{
+                active: index === activeLyricIndex,
+                past: index < activeLyricIndex,
+              }"
+            >
+              <span class="base">{{ line.text }}</span>
+              <span
+                class="fill"
+                :style="{
+                  width: index === activeLyricIndex
+                    ? `${activeLineProgress}%`
+                    : (index < activeLyricIndex ? '100%' : '0%'),
+                }"
+              >{{ line.text }}</span>
             </div>
           </div>
-        </div>
 
-        <div class="progress-row">
-          <span class="time">{{ formatTime(currentTime) }}</span>
-          <input
-            class="progress"
-            type="range"
-            min="0"
-            :max="Math.max(duration, 0.1)"
-            step="0.1"
-            :value="currentTime"
-            :style="{ '--progress': `${progressPercent}%` }"
-            @input="onSeekInput"
-          />
-          <span class="time">{{ formatTime(duration) }}</span>
-        </div>
+          <div class="soda-progress">
+            <span class="soda-time">{{ formatTime(currentTime) }}</span>
+            <div class="soda-bar">
+              <div class="soda-bar-fill" :style="{ width: `${progressPercent}%` }" />
+              <input
+                class="soda-range"
+                type="range"
+                min="0"
+                :max="Math.max(duration, 0.1)"
+                step="0.1"
+                :value="currentTime"
+                @input="onSeekInput"
+              />
+            </div>
+            <span class="soda-time">{{ formatTime(duration) }}</span>
+          </div>
 
-        <div class="controls">
-          <n-button secondary circle size="large" :disabled="!queueSize" @click="playRelative(-1)">
-            <template #icon>
-              <n-icon><play-skip-back-outline /></n-icon>
-            </template>
-          </n-button>
-          <n-button
-            type="primary"
-            circle
-            size="large"
-            :loading="starting"
-            :disabled="!queueSize && !currentTrack"
-            @click="togglePlay"
-          >
-            <template #icon>
-              <n-icon size="22">
-                <pause-outline v-if="playing" />
-                <play-outline v-else />
-              </n-icon>
-            </template>
-          </n-button>
-          <n-button secondary circle size="large" :disabled="!queueSize" @click="playRelative(1)">
-            <template #icon>
-              <n-icon><play-skip-forward-outline /></n-icon>
-            </template>
-          </n-button>
-        </div>
+          <div class="soda-controls">
+            <n-button circle secondary size="large" :disabled="!queueSize" @click="playRelative(-1)">
+              <template #icon>
+                <n-icon><play-skip-back-outline /></n-icon>
+              </template>
+            </n-button>
+            <n-button
+              circle
+              type="primary"
+              size="large"
+              class="soda-play"
+              :loading="starting"
+              :disabled="!queueSize && !currentTrack"
+              @click="togglePlay"
+            >
+              <template #icon>
+                <n-icon size="22">
+                  <pause-outline v-if="playing" />
+                  <play-outline v-else />
+                </n-icon>
+              </template>
+            </n-button>
+            <n-button circle secondary size="large" :disabled="!queueSize" @click="playRelative(1)">
+              <template #icon>
+                <n-icon><play-skip-forward-outline /></n-icon>
+              </template>
+            </n-button>
+          </div>
 
-        <audio
-          ref="audioRef"
-          preload="none"
-          @timeupdate="onTimeUpdate"
-          @ended="onAudioEnded"
-          @play="playing = true"
-          @pause="playing = false"
-        />
-      </n-card>
+          <n-text depth="3" class="soda-hint">
+            封面经本地代理加载；歌词按播放进度逐句填充高亮
+          </n-text>
+        </section>
+      </div>
     </n-spin>
+
+    <audio
+      ref="audioRef"
+      preload="none"
+      @timeupdate="onTimeUpdate"
+      @ended="onAudioEnded"
+      @play="playing = true"
+      @pause="playing = false"
+    />
   </div>
 </template>
 
 <style scoped>
-.recommend-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.soda-player-page {
+  position: relative;
   min-height: 100%;
+  color: #f4f7f5;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
 }
 
-.toolbar {
+.soda-bg {
+  position: absolute;
+  inset: -20px;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(0, 203, 100, 0.2), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(49, 228, 76, 0.1), transparent 32%),
+    linear-gradient(160deg, #101814, #090c0a 60%, #0d1410);
+  border-radius: 18px;
+  z-index: 0;
+}
+
+.soda-top,
+.soda-main {
+  position: relative;
+  z-index: 1;
+}
+
+.soda-top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 22px;
 }
 
-.title-row {
+.soda-brand {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.page-title {
-  font-size: 18px;
   font-weight: 600;
 }
 
-.mode-hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-}
-
-.player-card {
-  border-radius: 14px;
-}
-
-.player-body {
+.soda-main {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 20px;
-  min-height: 300px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
 }
 
-@media (max-width: 720px) {
-  .player-body {
+@media (max-width: 760px) {
+  .soda-main {
     grid-template-columns: 1fr;
   }
 }
 
-.cover-wrap {
-  width: 240px;
-  max-width: 100%;
+.soda-cover-wrap {
+  position: relative;
+  width: 260px;
+  height: 260px;
+  margin: 0 auto;
 }
 
-@media (max-width: 720px) {
-  .cover-wrap {
-    width: min(240px, 70vw);
-    margin: 0 auto;
-  }
-}
-
-.cover {
-  width: 240px;
-  height: 240px;
-  border-radius: 16px;
+.soda-cover {
+  width: 260px;
+  height: 260px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(0, 203, 100, 0.22), rgba(0, 0, 0, 0.4)) center/cover no-repeat;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  position: relative;
+  z-index: 2;
   overflow: hidden;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
 }
 
-@media (max-width: 720px) {
-  .cover {
-    width: 100%;
-  }
-}
-
-.cover.placeholder {
+.soda-cover-fallback {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(circle at 30% 20%, rgba(24, 160, 88, 0.25), transparent 50%),
-    linear-gradient(145deg, #1f2a24, #121816);
-  border: 1px solid rgba(24, 160, 88, 0.25);
 }
 
-.meta-lyric {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 10px;
+.soda-cover.has-image .soda-cover-fallback {
+  display: none;
 }
 
-.meta-block {
-  min-height: 72px;
-}
-
-.track-name {
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
-.track-artist {
-  margin-top: 8px;
+.soda-vinyl {
+  position: absolute;
+  right: -40px;
+  top: 50%;
+  width: 160px;
+  height: 160px;
+  margin-top: -80px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, #222 0 18%, #111 19% 22%, #1b1b1b 23% 100%);
+  z-index: 1;
   opacity: 0.85;
 }
 
-.track-album {
-  margin-top: 4px;
-  font-size: 12px;
-  opacity: 0.65;
+.soda-vinyl.playing {
+  animation: soda-spin 8s linear infinite;
 }
 
-.lyric-panel {
-  flex: 1;
-  min-height: 180px;
-  max-height: 260px;
-  overflow: auto;
-  padding: 8px 4px;
-  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
-}
-
-.lyric-empty {
-  height: 100%;
-  min-height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0.45;
-  font-size: 13px;
-}
-
-.lyric-line {
-  text-align: center;
-  padding: 7px 8px;
-  font-size: 14px;
-  line-height: 1.5;
-  opacity: 0.45;
-  transition: opacity 0.2s ease, transform 0.2s ease, color 0.2s ease;
-}
-
-.lyric-line.active {
-  opacity: 1;
-  transform: scale(1.05);
-  color: #18a058;
-  font-weight: 600;
+@keyframes soda-spin {
+  to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lyric-line {
-    transition: none;
-  }
+  .soda-vinyl.playing { animation: none; }
 }
 
-.progress-row {
+.soda-panel {
+  min-width: 0;
+  background: rgba(18, 22, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 22px;
+}
+
+.soda-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.soda-artist {
+  margin: 8px 0 0;
+  color: #7dffb0;
+  font-size: 15px;
+}
+
+.soda-album {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(244, 247, 245, 0.45);
+}
+
+.soda-lyric {
+  margin-top: 16px;
+  height: 170px;
+  overflow: auto;
+  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+}
+
+.soda-lyric-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(244, 247, 245, 0.35);
+  font-size: 13px;
+}
+
+.soda-lyric-line {
+  position: relative;
+  text-align: center;
+  padding: 8px 6px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(244, 247, 245, 0.28);
+}
+
+.soda-lyric-line.active {
+  color: rgba(244, 247, 245, 0.4);
+  transform: scale(1.04);
+}
+
+.soda-lyric-line .base,
+.soda-lyric-line .fill {
+  display: block;
+}
+
+.soda-lyric-line .fill {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #7dffb0;
+  font-weight: 650;
+  text-align: center;
+  box-sizing: border-box;
+  padding: 0 6px;
+  pointer-events: none;
+}
+
+.soda-progress {
+  margin-top: 18px;
   display: grid;
   grid-template-columns: 44px 1fr 44px;
   gap: 10px;
   align-items: center;
-  margin-top: 14px;
 }
 
-.time {
+.soda-time {
   font-size: 12px;
-  opacity: 0.7;
+  color: rgba(244, 247, 245, 0.45);
   font-variant-numeric: tabular-nums;
 }
 
-.progress {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
+.soda-bar {
+  position: relative;
   height: 6px;
   border-radius: 999px;
-  background:
-    linear-gradient(to right, #18a058 var(--progress, 0%), rgba(127, 127, 127, 0.28) var(--progress, 0%));
-  outline: none;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: visible;
+}
+
+.soda-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #00cb64, #31e44c);
+}
+
+.soda-range {
+  position: absolute;
+  inset: -8px 0;
+  width: 100%;
+  opacity: 0;
   cursor: pointer;
 }
 
-.progress::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: #18a058;
-  border: 2px solid #fff;
-}
-
-.controls {
-  margin-top: 14px;
+.soda-controls {
+  margin-top: 18px;
   display: flex;
   justify-content: center;
-  align-items: center;
-  gap: 16px;
+  gap: 14px;
+}
+
+.soda-play {
+  box-shadow: 0 10px 28px rgba(0, 203, 100, 0.3);
+}
+
+.soda-hint {
+  display: block;
+  margin-top: 14px;
+  text-align: center;
+  font-size: 12px;
 }
 </style>
