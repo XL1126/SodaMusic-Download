@@ -61,7 +61,7 @@ module.exports = {
     apiLogger.debug(`AuthQrcodeStatus request`, { tokenLen: token ? token.length : 0 })
 
     if (!token) {
-      apiLogger.warn(`AuthQrcodeStatus missing token`)
+      apiLogger.warn('auth.qrcodeStatusMissingToken')
       res.status(400).json({
         message: 'token is required',
       })
@@ -87,7 +87,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`AuthQrcodeStatus upstream non-JSON`, {
+        apiLogger.warn('auth.qrcodeStatusUpstreamNonJson', {
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
         })
@@ -117,7 +117,7 @@ module.exports = {
         },
       })
     } catch (error) {
-      apiLogger.error(`AuthQrcodeStatus failed`, {
+      apiLogger.error('auth.qrcodeStatusFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,

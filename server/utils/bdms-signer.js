@@ -30,7 +30,7 @@ let currentDeviceId = ''
  */
 function initSigner(deviceId) {
   if (initialized) {
-    signerLogger.debug(`Signer already initialized`)
+    signerLogger.debug('signer.alreadyInit')
     return true
   }
 
@@ -46,10 +46,10 @@ function initSigner(deviceId) {
     bdms.init({ deviceId })
     initialized = true
 
-    signerLogger.info(`BDMS signer initialized`, { deviceId })
+    signerLogger.info('signer.initOk', { deviceId })
     return true
   } catch (error) {
-    signerLogger.error(`BDMS signer init failed`, {
+    signerLogger.error('signer.initFailed', {
       error: error.message,
       bdmsPath: BDMS_NODE_PATH,
       deviceId,
@@ -105,7 +105,7 @@ function parseSignatureResult(result) {
  */
 function generateSignatureHeaders(url, existingHeaders = {}) {
   if (!initialized || !bdms) {
-    signerLogger.warn(`Signer not initialized, skipping signature`)
+    signerLogger.warn('signer.notInit')
     return {}
   }
 
@@ -122,7 +122,7 @@ function generateSignatureHeaders(url, existingHeaders = {}) {
 
     return headers
   } catch (error) {
-    signerLogger.error(`Signature generation failed`, {
+    signerLogger.error('signer.signFailed', {
       error: error.message,
       url: url.substring(0, 100),
     })

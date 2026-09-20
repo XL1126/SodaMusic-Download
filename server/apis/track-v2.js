@@ -63,10 +63,10 @@ module.exports = {
       scene_name = 'search',
     } = req.body || {}
 
-    apiLogger.debug(`TrackV2 request`, { track_id, media_type, queue_type, scene_name })
+    apiLogger.debug('trackV2.request', { track_id, media_type, queue_type, scene_name })
 
     if (!sessionid) {
-      apiLogger.warn(`TrackV2 missing sessionid`)
+      apiLogger.warn('trackV2.missingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -74,7 +74,7 @@ module.exports = {
     }
 
     if (!track_id) {
-      apiLogger.warn(`TrackV2 missing track_id`)
+      apiLogger.warn('trackV2.missingId')
       res.status(400).json({
         message: 'track_id is required',
       })
@@ -115,7 +115,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`TrackV2 upstream non-JSON response`, {
+        apiLogger.warn('trackV2.upstreamNonJson', {
           track_id,
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
@@ -151,7 +151,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`TrackV2 failed`, {
+      apiLogger.error('trackV2.failed', {
         track_id,
         error: error?.message,
         errorName: error?.name,

@@ -10,7 +10,7 @@ const PIPELINE_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes for large video files
 
 async function fetchVideoStream(url) {
   const startTime = Date.now()
-  videoLogger.debug(`Fetching video stream`, {
+  videoLogger.debug('video.streamFetch', {
     urlPreview: String(url).slice(0, 120) + '...',
   })
 
@@ -25,7 +25,7 @@ async function fetchVideoStream(url) {
 
   if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(() => '')
-    videoLogger.error(`Video stream fetch failed`, {
+    videoLogger.error('video.streamFetchFailed', {
       status: upstream.status,
       error: text?.slice(0, 300) || upstream.statusText,
       elapsedMs: Date.now() - startTime,
@@ -47,7 +47,7 @@ async function fetchVideoStream(url) {
 
 async function downloadVideoToFile(url, outputPath) {
   const overallStart = Date.now()
-  videoLogger.info(`Downloading video to file`, {
+  videoLogger.info('video.downloadStart', {
     outputPath,
     urlPreview: String(url).slice(0, 120) + '...',
   })
@@ -71,7 +71,7 @@ async function downloadVideoToFile(url, outputPath) {
   try {
     await Promise.race([pipelinePromise, timeoutPromise])
   } catch (pipeErr) {
-    videoLogger.error(`Video download pipeline failed`, {
+    videoLogger.error('video.downloadFailed', {
       outputPath,
       error: pipeErr?.message,
       errorName: pipeErr?.name,
@@ -93,7 +93,7 @@ async function downloadVideoToFile(url, outputPath) {
     fileSize,
   }
 
-  videoLogger.info(`Video download complete`, {
+  videoLogger.info('video.downloadComplete', {
     outputPath,
     fileSize,
     downloadMs: Date.now() - downloadStart,

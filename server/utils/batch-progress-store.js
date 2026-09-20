@@ -41,7 +41,7 @@ const _gcTimer = setInterval(() => {
   }
 
   if (evicted > 0) {
-    progressLogger.info(`GC evicted stale batch progress entries`, {
+    progressLogger.info('playlist.batchGc', {
       evicted,
       remaining: store.size,
     })
@@ -65,7 +65,7 @@ function createBatchProgress(batchId, total) {
   }
 
   store.set(batchId, snapshot)
-  progressLogger.info(`Created batch progress`, { batchId, total: snapshot.total })
+  progressLogger.info('playlist.batchCreated', { batchId, total: snapshot.total })
   return snapshot
 }
 
@@ -73,7 +73,7 @@ function updateBatchProgress(batchId, patch) {
   const current = store.get(batchId)
 
   if (!current) {
-    progressLogger.warn(`updateBatchProgress: batchId not found`, { batchId })
+    progressLogger.warn('playlist.batchProgressMissing', { batchId })
     return null
   }
 
@@ -123,7 +123,7 @@ function deleteBatchProgress(batchId) {
   const existed = store.has(batchId)
   store.delete(batchId)
   if (existed) {
-    progressLogger.info(`Deleted batch progress`, { batchId })
+    progressLogger.info('playlist.batchDeleted', { batchId })
   }
 }
 

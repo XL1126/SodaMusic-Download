@@ -115,14 +115,14 @@ module.exports = {
     const shareText = req.body?.share_text || req.body?.url || ''
     const shareUrl = normalizeShareUrl(shareText)
 
-    shareResolveLogger.info(`Share resolve request received`, {
+    shareResolveLogger.info('share.resolveRequest', {
       shareUrlPreview: shareUrl ? shareUrl.slice(0, 160) : '',
       hasBody: Boolean(shareText),
     })
 
     // ---- 输入校验：必须能提取出合法 HTTP URL ----
     if (!shareUrl) {
-      shareResolveLogger.warn(`Share resolve: invalid share url`)
+      shareResolveLogger.warn('share.resolveInvalidUrl')
       res.status(400).json({
         message: '分享链接格式无效，请粘贴完整链接。',
       })
@@ -147,7 +147,7 @@ module.exports = {
       // 【修复2】在 text() 之前先检查 content-length 上限；超大响应直接截断，避免 OOM
       const contentLength = Number(upstream.headers.get('content-length')) || 0
       if (contentLength > MAX_HTML_SIZE_BYTES) {
-        shareResolveLogger.warn(`Share resolve: upstream response too large`, {
+        shareResolveLogger.warn('share.resolveTooLarge', {
           shareUrl,
           contentLength,
           limit: MAX_HTML_SIZE_BYTES,
@@ -164,7 +164,7 @@ module.exports = {
       // 若实际超出上限就抛错（避免 chunked 传输把大文件整段读入内存）。
       const rawBuffer = Buffer.from(await upstream.arrayBuffer())
       if (rawBuffer.length > MAX_HTML_SIZE_BYTES) {
-        shareResolveLogger.warn(`Share resolve: upstream body exceeded limit`, {
+        shareResolveLogger.warn('share.resolveBodyLimit', {
           shareUrl,
           bodyLength: rawBuffer.length,
           limit: MAX_HTML_SIZE_BYTES,
@@ -190,7 +190,7 @@ module.exports = {
       })
 
       if (!trackId && !videoId) {
-        shareResolveLogger.warn(`Share resolve: no resource id found`, { finalUrl, httpStatus: upstream.status })
+        shareResolveLogger.warn('share.resolveNoId', { finalUrl, httpStatus: upstream.status })
         res.status(422).json({
           message: '未能从分享页中解析出 track_id 或 video_id。',
           final_url: finalUrl,
@@ -198,7 +198,7 @@ module.exports = {
         return
       }
 
-      shareResolveLogger.info(`Share resolve success`, {
+      shareResolveLogger.info('share.resolveOk', {
         finalUrl,
         resource_type: trackId ? 'track' : 'video',
         trackId,
@@ -214,7 +214,7 @@ module.exports = {
         video_id: videoId,
       })
     } catch (error) {
-      shareResolveLogger.error(`Share resolve failed`, {
+      shareResolveLogger.error('share.resolveFailed', {
         shareUrl,
         error: error?.message,
         name: error?.name,

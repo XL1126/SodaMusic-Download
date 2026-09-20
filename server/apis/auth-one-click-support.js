@@ -18,7 +18,7 @@ module.exports = {
   handler: async (_req, res) => {
     try {
       const result = getSessionIdFromSodaMusicCookies()
-      oneClickLogger.info(`one-click support checked`, {
+      oneClickLogger.info('auth.oneClickChecked', {
         supported: result.supported,
         reason: result.reason || '',
         hasSessionid: Boolean(result.sessionid),
@@ -31,7 +31,7 @@ module.exports = {
         message: result.reason || (result.supported ? '支持一键登录' : '当前环境不支持一键登录'),
       })
     } catch (error) {
-      oneClickLogger.error(`one-click support check failed`, {
+      oneClickLogger.error('auth.oneClickCheckFailed', {
         error: error?.message,
         stack: error?.stack?.slice(0, 600),
       })

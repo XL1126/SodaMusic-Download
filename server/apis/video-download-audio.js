@@ -38,13 +38,13 @@ module.exports = {
     const startTime = Date.now()
     const { url, file_name } = req.body || {}
 
-    audioApiLogger.info(`Video->audio download API request`, {
+    audioApiLogger.info('video.audioApiRequest', {
       urlPreview: String(url).slice(0, 120) + '...',
       fileName: file_name || '(default)',
     })
 
     if (!url) {
-      audioApiLogger.warn(`Missing url`)
+      audioApiLogger.warn('video.apiMissingUrl')
       res.status(400).json({
         message: 'url is required',
       })
@@ -65,7 +65,7 @@ module.exports = {
       })()
       const safeName = sanitizeFilename(file_name || `${defaultBaseName}${result.outputExtension}`)
 
-      audioApiLogger.info(`Video->audio ready to send`, {
+      audioApiLogger.info('video.audioReady', {
         fileName: safeName,
         outputSize: result.buffer.length,
         totalElapsedMs: Date.now() - startTime,
@@ -77,7 +77,7 @@ module.exports = {
 
       res.send(result.buffer)
     } catch (error) {
-      audioApiLogger.error(`Video->audio API failed`, {
+      audioApiLogger.error('video.audioApiFailed', {
         error: error?.message,
         errorName: error?.name,
         totalElapsedMs: Date.now() - startTime,

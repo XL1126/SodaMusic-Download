@@ -45,10 +45,10 @@ module.exports = {
     const startTime = Date.now()
     const { aid = fixed.aid, sessionid } = req.body || {}
 
-    apiLogger.debug(`AuthProfile request`)
+    apiLogger.debug('auth.profileRequest')
 
     if (!sessionid) {
-      apiLogger.warn(`AuthProfile missing sessionid`)
+      apiLogger.warn('auth.profileMissingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -69,7 +69,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`AuthProfile upstream non-JSON response`, {
+        apiLogger.warn('auth.profileUpstreamNonJson', {
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
         })
@@ -80,7 +80,7 @@ module.exports = {
         }
       }
 
-      apiLogger.debug(`AuthProfile response`, {
+      apiLogger.debug('auth.profileResponse', {
         status: upstream.status,
         statusCode: payload?.status_code,
         userId: payload?.my_info?.id || '',
@@ -92,7 +92,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`AuthProfile failed`, {
+      apiLogger.error('auth.profileFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,

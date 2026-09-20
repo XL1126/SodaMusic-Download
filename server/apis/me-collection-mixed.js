@@ -56,7 +56,7 @@ module.exports = {
     apiLogger.debug(`MeCollectionMixed request`)
 
     if (!sessionid) {
-      apiLogger.warn(`MeCollectionMixed missing sessionid`)
+      apiLogger.warn('playlist.collectionMissingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -77,7 +77,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`MeCollectionMixed upstream non-JSON response`, {
+        apiLogger.warn('playlist.collectionUpstreamNonJson', {
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
         })
@@ -98,7 +98,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`MeCollectionMixed failed`, {
+      apiLogger.error('playlist.collectionFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,

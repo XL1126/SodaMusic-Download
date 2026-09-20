@@ -31,7 +31,7 @@ function readLastLines(filePath, maxLines = 500) {
 
     content = buffer.slice(0, bytesRead).toString('utf8')
   } catch (err) {
-    logsLogger.warn(`Failed to read log file`, {
+    logsLogger.warn('logs.readFailed', {
       filePath,
       error: err?.message,
     })
@@ -56,7 +56,7 @@ module.exports = {
     // 【修复】与 logger 保持一致：统一读取项目根目录 ./logs，不再去 %TEMP%
     const logDir = getLogDir()
 
-    logsLogger.debug(`Logs request`, { lines: safeLines, logFilePath, logDir })
+    logsLogger.debug('logs.request', { lines: safeLines, logFilePath, logDir })
 
     let todayLines = []
     if (logFilePath) {
@@ -85,7 +85,7 @@ module.exports = {
         })
       }
     } catch (dirErr) {
-      logsLogger.warn(`Failed to list log dir`, { error: dirErr?.message })
+      logsLogger.warn('logs.listFailed', { error: dirErr?.message })
     }
 
     res.json({

@@ -320,7 +320,7 @@ class FlacMetadataWriter {
     }
 
     const startTime = Date.now()
-    flacLogger.info(`Writing FLAC buffer tags`, {
+    flacLogger.info('flac.writeStart', {
       inputSize: flacBuffer.length,
       hasCover: Boolean(coverBuffer && coverBuffer.length > 0),
       coverSize: coverBuffer?.length || 0,
@@ -335,13 +335,13 @@ class FlacMetadataWriter {
         coverMime,
       })
 
-      flacLogger.info(`FLAC tag write complete`, {
+      flacLogger.info('flac.writeComplete', {
         outputSize: resultBuffer.length,
         totalMs: Date.now() - startTime,
       })
       return resultBuffer
     } catch (err) {
-      flacLogger.error(`FLAC tag write failed`, {
+      flacLogger.error('flac.writeFailed', {
         error: err?.message,
         errorName: err?.name,
         totalMs: Date.now() - startTime,
@@ -363,7 +363,7 @@ class FlacMetadataWriter {
 
     const response = await fetchWithTimeout(imageUrl, {}, DEFAULT_TIMEOUT_MS)
     if (!response.ok) {
-      flacLogger.warn(`Cover fetch non-200`, {
+      flacLogger.warn('flac.coverFetchFailed', {
         status: response.status,
         elapsedMs: Date.now() - startTime,
       })

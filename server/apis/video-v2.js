@@ -57,10 +57,10 @@ module.exports = {
       queue_type = 'favorite_track_playlist',
     } = req.body || {}
 
-    apiLogger.debug(`VideoV2 request`, { video_id, type, scene_name, queue_type })
+    apiLogger.debug('video.v2Request', { video_id, type, scene_name, queue_type })
 
     if (!sessionid) {
-      apiLogger.warn(`VideoV2 missing sessionid`)
+      apiLogger.warn('video.v2MissingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -68,7 +68,7 @@ module.exports = {
     }
 
     if (!video_id) {
-      apiLogger.warn(`VideoV2 missing video_id`)
+      apiLogger.warn('video.v2MissingId')
       res.status(400).json({
         message: 'video_id is required',
       })
@@ -98,7 +98,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`VideoV2 upstream non-JSON response`, {
+        apiLogger.warn('video.v2UpstreamNonJson', {
           video_id,
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
@@ -120,7 +120,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`VideoV2 failed`, {
+      apiLogger.error('video.v2Failed', {
         video_id,
         error: error?.message,
         errorName: error?.name,

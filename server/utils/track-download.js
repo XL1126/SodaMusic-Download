@@ -145,7 +145,7 @@ function getTrackV2Payload(reqBody) {
 
 async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   const trackV2Url = buildUrl(endpoints.trackV2, getPcQuery({ aid }))
-  trackLogger.debug(`Fetching track payload`, { track_id, aid })
+  trackLogger.debug('track.payloadFetch', { track_id, aid })
 
   // 初始化 BDMS 签名模块（使用 SodaMusic 的 device_id）
   initSigner('2117006317868281')
@@ -194,7 +194,7 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   } catch (parseErr) {
     const preview = String(rawText || '').slice(0, 500)
     const looksLikeHtml = /<html|<body|<title/i.test(preview)
-    trackLogger.error(`Track payload JSON parse failed`, {
+    trackLogger.error('track.payloadParseFailed', {
       track_id,
       status: trackV2Response.status,
       contentType: trackV2Response.headers?.get?.('content-type') || '',
@@ -213,7 +213,7 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   }
 
   if (!trackV2Response.ok) {
-    trackLogger.error(`Track payload request failed`, {
+    trackLogger.error('track.payloadRequestFailed', {
       track_id,
       status: trackV2Response.status,
       error: trackPayload?.error || trackPayload?.message,
@@ -232,7 +232,7 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   const businessCode = Number(trackPayload?.status_code)
   if (Number.isFinite(businessCode) && businessCode !== 0) {
     const msg = trackPayload?.message || trackPayload?.status_msg || `汽水音乐业务错误 status_code=${businessCode}`
-    trackLogger.warn(`Track payload business error`, {
+    trackLogger.warn('track.payloadBusinessError', {
       track_id,
       status_code: businessCode,
       message: msg,
@@ -260,7 +260,7 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
   const hasTrackPlayer = Boolean(trackPayload?.track_player)
   const hasTrack = Boolean(trackPayload?.track)
   const hasData = Boolean(trackPayload?.data)
-  trackLogger.debug(`Track payload fetched`, {
+  trackLogger.debug('track.payloadFetched', {
     track_id,
     trackName: trackPayload?.track?.name || trackPayload?.data?.track?.name,
     status_code: businessCode,
@@ -286,7 +286,7 @@ async function fetchTrackPayload({ aid = fixed.aid, sessionid, track_id }) {
 
 async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.aid }) {
   const overallStart = Date.now()
-  trackLogger.info(`Starting track download`, { track_id, quality, aid })
+  trackLogger.info('track.downloadStart', { track_id, quality, aid })
 
   const flacMetadataWriter = new FlacMetadataWriter()
   const trackPayload = await fetchTrackPayload({ aid, sessionid, track_id })
@@ -334,7 +334,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
     } else {
       reason = `未找到视频/音频元数据字段：track_player 不存在，track 仅含 ${trackKeysStr}；可能曲目无资源或接口结构已变更`
     }
-    trackLogger.error(`Track 资源解析失败`, {
+    trackLogger.error('track.resourceParseFailed', {
       track_id,
       reason,
       usedPath: null,
@@ -355,7 +355,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
   try {
     videoModel = JSON.parse(videoModelRaw)
   } catch (parseErr) {
-    trackLogger.error(`Track video_model parse failed`, {
+    trackLogger.error('track.videoModelParseFailed', {
       track_id,
       error: parseErr?.message,
       rawPreview: String(videoModelRaw).slice(0, 200),
@@ -407,7 +407,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
   }
 
   if (!matchedItem?.main_url) {
-    trackLogger.error(`Quality not found`, {
+    trackLogger.error('track.qualityNotFound', {
       track_id,
       requestedQuality: quality,
       availableQualities: videoList.map((v) => v?.video_meta?.quality).filter(Boolean),
@@ -437,7 +437,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
 
   if (!mediaResponse.ok) {
     const errorText = await mediaResponse.text().catch(() => '')
-    trackLogger.error(`Media fetch failed`, {
+    trackLogger.error('track.mediaFetchFailed', {
       track_id,
       status: mediaResponse.status,
       error: errorText?.slice(0, 300) || mediaResponse.statusText,
@@ -477,7 +477,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
       elapsedMs: Date.now() - decryptStart,
     })
   } catch (decryptErr) {
-    trackLogger.error(`Decryption failed`, {
+    trackLogger.error('track.decryptFailed', {
       track_id,
       error: decryptErr?.message,
       stack: decryptErr?.stack?.slice(0, 500),
@@ -504,7 +504,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
             mime: coverData?.mime,
           })
         } catch (coverErr) {
-          trackLogger.warn(`Cover fetch failed, skipping`, {
+          trackLogger.warn('flac.coverFetchFailed', {
             track_id,
             error: coverErr?.message,
           })
@@ -524,7 +524,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
         elapsedMs: Date.now() - metaStart,
       })
     } catch (metaErr) {
-      trackLogger.warn(`FLAC metadata write failed, using raw buffer`, {
+      trackLogger.warn('track.flacWriteFailed', {
         track_id,
         error: metaErr?.message,
         stack: metaErr?.stack?.slice(0, 300),
@@ -533,7 +533,7 @@ async function downloadTrackMedia({ sessionid, track_id, quality, aid = fixed.ai
     }
   }
 
-  trackLogger.info(`Track download completed`, {
+  trackLogger.info('track.downloadComplete', {
     track_id,
     quality,
     fileName: result.fileName,

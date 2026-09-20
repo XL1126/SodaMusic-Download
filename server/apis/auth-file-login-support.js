@@ -32,7 +32,7 @@ module.exports = {
     const fileContentBase64 = String(req.body?.file_content_base64 || '').trim()
 
     if (!fileContentBase64) {
-      fileAuthLogger.warn(`file login: missing file_content_base64`, { fileName })
+      fileAuthLogger.warn('auth.fileLoginMissing', { fileName })
       res.status(400).json({
         supported: false,
         sessionid: '',
@@ -47,7 +47,7 @@ module.exports = {
       `sodamusic-upload-${process.pid}-${Date.now()}-${crypto.randomUUID()}.sqlite`,
     )
 
-    fileAuthLogger.info(`file login: temp file created`, { fileName, tempPath, base64Len: fileContentBase64.length })
+    fileAuthLogger.info('auth.fileLoginTemp', { fileName, tempPath, base64Len: fileContentBase64.length })
 
     try {
       const buffer = Buffer.from(fileContentBase64, 'base64')
@@ -56,7 +56,7 @@ module.exports = {
       const sessionid = readSessionIdFromCookieDatabase(tempPath)
 
       if (!sessionid) {
-        fileAuthLogger.warn(`file login: sessionid not found in db`, { fileName })
+        fileAuthLogger.warn('auth.fileLoginNoSession', { fileName })
         res.json({
           supported: false,
           sessionid: '',
@@ -66,7 +66,7 @@ module.exports = {
         return
       }
 
-      fileAuthLogger.info(`file login: sessionid parsed ok`, { fileName, elapsedMs: Date.now() - startTime })
+      fileAuthLogger.info('auth.fileLoginOk', { fileName, elapsedMs: Date.now() - startTime })
 
       res.json({
         supported: true,
@@ -76,7 +76,7 @@ module.exports = {
       })
     } catch (error) {
       const rawMsg = String(error?.message || '')
-      fileAuthLogger.error(`file login failed`, {
+      fileAuthLogger.error('auth.fileLoginFailed', {
         fileName,
         error: rawMsg,
         code: error?.code,

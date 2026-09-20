@@ -68,7 +68,7 @@ module.exports = {
     apiLogger.debug(`PlaylistDetail request`, { playlist_id, cursor: cursor || '(first)', count })
 
     if (!sessionid) {
-      apiLogger.warn(`PlaylistDetail missing sessionid`)
+      apiLogger.warn('playlist.detailMissingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -76,7 +76,7 @@ module.exports = {
     }
 
     if (!playlist_id) {
-      apiLogger.warn(`PlaylistDetail missing playlist_id`)
+      apiLogger.warn('playlist.detailMissingId')
       res.status(400).json({
         message: 'playlist_id is required',
       })
@@ -104,7 +104,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`PlaylistDetail upstream non-JSON response`, {
+        apiLogger.warn('playlist.detailUpstreamNonJson', {
           playlist_id,
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
@@ -129,7 +129,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`PlaylistDetail failed`, {
+      apiLogger.error('playlist.detailFailed', {
         playlist_id,
         error: error?.message,
         errorName: error?.name,

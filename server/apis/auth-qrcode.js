@@ -43,7 +43,7 @@ module.exports = {
   response,
   handler: async (_req, res) => {
     const startTime = Date.now()
-    apiLogger.debug(`AuthQrcode request`)
+    apiLogger.debug('auth.qrcodeRequest')
 
     try {
       const target = buildUrl(endpoints.getQrcode, request.query)
@@ -56,7 +56,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`AuthQrcode upstream non-JSON response`, {
+        apiLogger.warn('auth.qrcodeUpstreamNonJson', {
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
         })
@@ -66,7 +66,7 @@ module.exports = {
         }
       }
 
-      apiLogger.debug(`AuthQrcode response`, {
+      apiLogger.debug('auth.qrcodeResponse', {
         status: upstream.status,
         msg: payload?.message || '',
         hasToken: Boolean(payload?.data?.token),
@@ -77,7 +77,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`AuthQrcode failed`, {
+      apiLogger.error('auth.qrcodeFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,

@@ -46,7 +46,7 @@ class VideoAudioExtractor {
           return
         }
         settled = true
-        extractLogger.error(`FFmpeg transcoding timed out`, {
+        extractLogger.error('video.ffmpegTimeout', {
           videoPath,
           audioPath,
           kbps,
@@ -58,7 +58,7 @@ class VideoAudioExtractor {
             ffmpegCommand.kill('SIGKILL')
           }
         } catch (killErr) {
-          extractLogger.warn(`Failed to kill ffmpeg process`, { error: killErr?.message })
+          extractLogger.warn('video.ffmpegKillFailed', { error: killErr?.message })
         }
         const err = new Error(`FFmpeg transcoding timed out after ${FFMPEG_TIMEOUT_MS}ms`)
         err.name = 'FFmpegTimeoutError'
@@ -99,7 +99,7 @@ class VideoAudioExtractor {
           }
           settled = true
           cleanup()
-          extractLogger.info(`FFmpeg transcoding complete`, {
+          extractLogger.info('video.ffmpegComplete', {
             videoPath,
             audioPath,
             kbps,
@@ -113,7 +113,7 @@ class VideoAudioExtractor {
           }
           settled = true
           cleanup()
-          extractLogger.error(`FFmpeg transcoding failed`, {
+          extractLogger.error('video.ffmpegFailed', {
             videoPath,
             audioPath,
             error: error?.message,
@@ -142,7 +142,7 @@ class VideoAudioExtractor {
     const videoPath = path.join(tempDir, `${baseName}.mp4`)
     const audioPath = path.join(tempDir, `${baseName}.mp3`)
 
-    extractLogger.info(`Starting video->audio extraction`, {
+    extractLogger.info('video.extractStart', {
       baseName,
       tempDir,
       urlPreview: String(url).slice(0, 120) + '...',
@@ -163,7 +163,7 @@ class VideoAudioExtractor {
 
       const buffer = await fs.promises.readFile(audioPath)
 
-      extractLogger.info(`Video->audio extraction complete`, {
+      extractLogger.info('video.extractComplete', {
         baseName,
         outputSize: buffer.length,
         fileSize,
@@ -177,7 +177,7 @@ class VideoAudioExtractor {
         contentType: 'audio/mpeg',
       }
     } catch (err) {
-      extractLogger.error(`Video->audio extraction failed`, {
+      extractLogger.error('video.extractFailed', {
         baseName,
         error: err?.message,
         errorName: err?.name,
@@ -192,7 +192,7 @@ class VideoAudioExtractor {
         await fs.promises.rm(tempDir, { recursive: true, force: true })
         extractLogger.debug(`Temp dir cleaned up`, { tempDir })
       } catch (cleanupErr) {
-        extractLogger.warn(`Failed to remove temp dir`, {
+        extractLogger.warn('video.tempCleanupFailed', {
           tempDir,
           error: cleanupErr?.message,
         })

@@ -25,7 +25,7 @@ module.exports = {
     const batchId = String(req.query?.batch_id || '').trim()
 
     if (!batchId) {
-      progressLogger.warn(`batch progress: missing batch_id`)
+      progressLogger.warn('playlist.batchProgressMissingId')
       res.status(400).json({
         message: 'batch_id is required',
       })
@@ -35,7 +35,7 @@ module.exports = {
     const progress = getBatchProgress(batchId)
 
     if (!progress) {
-      progressLogger.warn(`batch progress: batch_id not found`, { batchId })
+      progressLogger.warn('playlist.batchProgressMissing', { batchId })
       res.status(404).json({
         message: 'batch progress not found',
       })

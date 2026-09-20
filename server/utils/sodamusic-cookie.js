@@ -52,19 +52,33 @@ function readSessionIdFromCookieDatabase(databasePath) {
     `).get()
 
     const sessionid = String(row?.value || '').trim()
-    cookieLogger.debug(`readSessionIdFromCookieDatabase`, {
+    cookieLogger.debug('cookie.readSessionId', {
       databasePath,
       found: Boolean(sessionid),
     })
     return sessionid
   } catch (error) {
-    // 这里不吞异常，让上层根据 message 关键词分类返回用户友好提示；
-    // 但先打 ERROR 日志，线上可以直接从 log 文件看出到底是 NOTADB / CORRUPT / 锁定还是其他。
-    cookieLogger.error(`readSessionIdFromCookieDatabase error`, {
-      databasePath,
-      message: error?.message,
-      code: error?.code,
-    })
+    const message = String(error?.message || '')
+    const locked =
+      message.includes('EBUSY') ||
+      message.includes('locked') ||
+      message.includes('busy') ||
+      message.includes('unable to open database file')
+
+    // 锁定属于可预期情况（汽水音乐正在运行），只记 WARN，避免终端出现 ERROR 噪音
+    if (locked) {
+      cookieLogger.warn('cookie.dbLocked', {
+        databasePath,
+        message,
+        code: error?.code,
+      })
+    } else {
+      cookieLogger.error('cookie.readSessionIdError', {
+        databasePath,
+        message,
+        code: error?.code,
+      })
+    }
     throw error
   } finally {
     if (database) {
@@ -75,7 +89,7 @@ function readSessionIdFromCookieDatabase(databasePath) {
 
 function getSessionIdFromSodaMusicCookies() {
   if (!isWindowsPlatform()) {
-    cookieLogger.warn(`getSessionIdFromSodaMusicCookies called on non-win32`)
+    cookieLogger.warn('cookie.nonWindows')
     return {
       supported: false,
       reason: '当前后端非Windows系统，无法使用一键登录',
@@ -87,7 +101,7 @@ function getSessionIdFromSodaMusicCookies() {
   const cookieDbPath = getCookieDbPath()
 
   if (!fs.existsSync(cookieDbPath)) {
-    cookieLogger.warn(`cookie db file not exist`, { cookieDbPath })
+    cookieLogger.warn('cookie.dbMissing', { cookieDbPath })
     return {
       supported: false,
       reason: '请先安装PC端汽水音乐，并完成登录',
@@ -100,7 +114,7 @@ function getSessionIdFromSodaMusicCookies() {
     const sessionid = readSessionIdFromCookieDatabase(cookieDbPath)
 
     if (!sessionid) {
-      cookieLogger.warn(`no sessionid row in cookie db`, { cookieDbPath })
+      cookieLogger.warn('cookie.noSessionId', { cookieDbPath })
       return {
         supported: false,
         reason: '汽水音乐登录状态获取失败，请确保账号已正常登录',
@@ -109,7 +123,7 @@ function getSessionIdFromSodaMusicCookies() {
       }
     }
 
-    cookieLogger.info(`got sessionid from soda cookie db ok`, { cookieDbPath })
+    cookieLogger.info('cookie.gotSessionId', { cookieDbPath })
     return {
       supported: true,
       reason: '',
@@ -125,7 +139,7 @@ function getSessionIdFromSodaMusicCookies() {
       message.includes('busy') ||
       message.includes('unable to open database file')
     ) {
-      cookieLogger.warn(`cookie db locked/busy`, { cookieDbPath, message })
+      // readSessionIdFromCookieDatabase 已打过 WARN，这里只返回友好结果
       return {
         supported: false,
         reason: '汽水音乐正在运行中，请退出后再使用一键登录',

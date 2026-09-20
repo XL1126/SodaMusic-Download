@@ -113,7 +113,7 @@ function withTaskTimeout(promise, taskDescription, timeoutMs = TASK_TIMEOUT_FALL
       settled = true
       const err = new Error(`Task timed out after ${timeoutMs}ms: ${taskDescription}`)
       err.name = 'TaskTimeoutError'
-      batchLogger.error(`Task timeout`, { task: taskDescription, timeoutMs })
+      batchLogger.error('playlist.batchTaskTimeout', { task: taskDescription, timeoutMs })
       reject(err)
     }, timeoutMs)
   })
@@ -155,11 +155,11 @@ module.exports = {
     if (!rawBatchId) {
       // 将新生成的 batchId 写回响应头，方便前端/调试感知
       res.setHeader('X-Batch-Id', batchId)
-      batchLogger.info(`Batch id not provided by client, server-generated fallback`, { batchId })
+      batchLogger.info('playlist.batchIdGenerated', { batchId })
     }
     const taskCount = Array.isArray(tasks) ? tasks.length : 0
 
-    batchLogger.info(`Batch download request started`, {
+    batchLogger.info('playlist.batchStart', {
       batchId,
       playlistTitle: playlist_title || '(untitled)',
       taskCount,
@@ -170,7 +170,7 @@ module.exports = {
     const taskTimeoutMs = Math.max(60 * 1000, Math.floor(totalTimeoutMs / taskCount))
 
     if (!sessionid) {
-      batchLogger.warn(`Missing sessionid`)
+      batchLogger.warn('common.missingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -178,7 +178,7 @@ module.exports = {
     }
 
     if (!Array.isArray(tasks) || tasks.length === 0) {
-      batchLogger.warn(`Empty tasks array`)
+      batchLogger.warn('playlist.batchEmptyTasks')
       res.status(400).json({
         message: 'tasks is required',
       })
@@ -189,7 +189,7 @@ module.exports = {
     const archive = archiver('zip', { zlib: { level: 9 } })
 
     archive.on('error', (error) => {
-      batchLogger.error(`Archive error`, { batchId, error: error?.message, stack: error?.stack?.slice(0, 500) })
+      batchLogger.error('playlist.batchArchiveError', { batchId, error: error?.message, stack: error?.stack?.slice(0, 500) })
       if (batchId) {
         updateBatchProgress(batchId, {
           status: 'failed',
@@ -209,7 +209,7 @@ module.exports = {
     })
 
     archive.on('warning', (warning) => {
-      batchLogger.warn(`Archive warning`, { batchId, warning: warning?.message })
+      batchLogger.warn('playlist.batchArchiveWarning', { batchId, warning: warning?.message })
     })
 
     res.setHeader('Content-Type', 'application/zip')
@@ -218,7 +218,7 @@ module.exports = {
     archive.pipe(res)
 
     // 【修复-根因③】batchId 现在必然存在（客户端不传则后端兜底生成），不再加 if(batchId) 判断
-    batchLogger.info(`Creating batch progress`, { batchId, total: taskCount })
+    batchLogger.info('playlist.batchCreating', { batchId, total: taskCount })
     createBatchProgress(batchId, tasks.length)
 
     try {
@@ -305,7 +305,7 @@ module.exports = {
             await appendToArchive(archive, result.buffer, entryName)
             taskOk = true
           } else {
-            batchLogger.warn(`Skipping unknown task action`, {
+            batchLogger.warn('playlist.batchUnknownAction', {
               batchId,
               taskNum,
               action: task?.action,
@@ -396,7 +396,7 @@ module.exports = {
         }
       }
 
-      batchLogger.info(`All tasks processed, finalizing archive`, {
+      batchLogger.info('playlist.batchFinalizing', {
         batchId,
         totalTasks: taskCount,
         successCount,
@@ -410,7 +410,7 @@ module.exports = {
         `archive.finalize()`,
         5 * 60 * 1000,
       )
-      batchLogger.info(`Archive finalized`, {
+      batchLogger.info('playlist.batchArchiveFinalized', {
         batchId,
         finalizeMs: Date.now() - finalizeStart,
         totalBytes: archive.pointer(),
@@ -431,7 +431,7 @@ module.exports = {
           deleteBatchProgress(batchId)
         }, 5 * 60 * 1000)
 
-        batchLogger.info(`Batch download completed (partial OK)`, {
+        batchLogger.info('playlist.batchCompletedPartial', {
           batchId,
           totalTasks: taskCount,
           successCount,
@@ -442,7 +442,7 @@ module.exports = {
       } else {
         // 全失败 → 没有任何成功内容可给用户 → 视为失败
         const allFailedMsg = `全部 ${taskCount} 个任务均失败，ZIP 为空；详情见日志。`
-        batchLogger.error(`Batch download: all tasks failed`, {
+        batchLogger.error('playlist.batchAllFailed', {
           batchId,
           totalTasks: taskCount,
           failedCount: failedList.length,
@@ -476,7 +476,7 @@ module.exports = {
       }
     } catch (error) {
       // 走到这里一般是 archive.pipe / finalize 级别的严重错误（不是单曲失败）
-      batchLogger.error(`Batch download fatal error`, {
+      batchLogger.error('playlist.batchFatal', {
         batchId,
         error: error?.message,
         errorName: error?.name,

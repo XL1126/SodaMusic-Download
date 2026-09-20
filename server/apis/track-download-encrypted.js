@@ -47,13 +47,13 @@ module.exports = {
     const { quality = '' } = req.body || {}
     const trackV2Payload = getTrackV2Payload(req.body)
 
-    singleLogger.info(`Single track download request`, {
+    singleLogger.info('track.singleRequest', {
       track_id: trackV2Payload.track_id,
       quality,
     })
 
     if (!trackV2Payload.sessionid) {
-      singleLogger.warn(`Missing sessionid`)
+      singleLogger.warn('common.missingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -61,7 +61,7 @@ module.exports = {
     }
 
     if (!trackV2Payload.track_id) {
-      singleLogger.warn(`Missing track_id`)
+      singleLogger.warn('track.missingId')
       res.status(400).json({
         message: 'track_id is required',
       })
@@ -69,7 +69,7 @@ module.exports = {
     }
 
     if (!quality) {
-      singleLogger.warn(`Missing quality`)
+      singleLogger.warn('track.missingQuality')
       res.status(400).json({
         message: 'quality is required',
       })
@@ -84,7 +84,7 @@ module.exports = {
         quality,
       })
 
-      singleLogger.info(`Single track download ready to send`, {
+      singleLogger.info('track.singleReady', {
         track_id: trackV2Payload.track_id,
         quality,
         fileName: result.fileName,
@@ -109,7 +109,7 @@ module.exports = {
 
       res.send(result.buffer)
     } catch (error) {
-      singleLogger.error(`Single track download failed`, {
+      singleLogger.error('track.singleFailed', {
         track_id: trackV2Payload.track_id,
         quality,
         error: error?.message,

@@ -59,7 +59,7 @@ module.exports = {
     apiLogger.debug(`MePlaylists request`)
 
     if (!sessionid) {
-      apiLogger.warn(`MePlaylists missing sessionid`)
+      apiLogger.warn('playlist.listMissingSession')
       res.status(400).json({
         message: 'sessionid is required',
       })
@@ -80,7 +80,7 @@ module.exports = {
       try {
         payload = rawText ? JSON.parse(rawText) : {}
       } catch (parseErr) {
-        apiLogger.warn(`MePlaylists upstream non-JSON response`, {
+        apiLogger.warn('playlist.listUpstreamNonJson', {
           status: upstream.status,
           contentPreview: rawText.slice(0, 200),
         })
@@ -101,7 +101,7 @@ module.exports = {
 
       res.status(upstream.status).json(payload)
     } catch (error) {
-      apiLogger.error(`MePlaylists failed`, {
+      apiLogger.error('playlist.listFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,

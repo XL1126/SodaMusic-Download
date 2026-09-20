@@ -41,13 +41,13 @@ module.exports = {
     const startTime = Date.now()
     const { url, file_name } = req.body || {}
 
-    videoApiLogger.info(`Video download API request`, {
+    videoApiLogger.info('video.apiRequest', {
       urlPreview: String(url).slice(0, 120) + '...',
       fileName: file_name || '(default)',
     })
 
     if (!url) {
-      videoApiLogger.warn(`Missing url`)
+      videoApiLogger.warn('video.apiMissingUrl')
       res.status(400).json({
         message: 'url is required',
       })
@@ -86,7 +86,7 @@ module.exports = {
       let lastChunkAt = Date.now()
 
       const overallTimeoutId = setTimeout(() => {
-        videoApiLogger.error(`Video stream write overall timeout`, {
+        videoApiLogger.error('video.apiTimeout', {
           bytes,
           chunks,
           elapsedMs: Date.now() - startTime,
@@ -104,7 +104,7 @@ module.exports = {
       const idleCheckId = setInterval(() => {
         const since = Date.now() - lastChunkAt
         if (since > CHUNK_IDLE_TIMEOUT_MS && bytes > 0) {
-          videoApiLogger.warn(`Video stream idle too long between chunks`, {
+          videoApiLogger.warn('video.apiIdle', {
             idleMs: since,
             bytes,
             chunks,
@@ -149,7 +149,7 @@ module.exports = {
         clearTimeout(overallTimeoutId)
         clearInterval(idleCheckId)
 
-        videoApiLogger.info(`Video download stream complete`, {
+        videoApiLogger.info('video.apiComplete', {
           bytes,
           chunks,
           fileName: safeName,
@@ -162,7 +162,7 @@ module.exports = {
         throw streamErr
       }
     } catch (error) {
-      videoApiLogger.error(`Video download API failed`, {
+      videoApiLogger.error('video.apiFailed', {
         error: error?.message,
         errorName: error?.name,
         status: error?.status || 500,
