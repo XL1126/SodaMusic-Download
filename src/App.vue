@@ -36,15 +36,18 @@ import MyPlaylistsPage from './pages/MyPlaylistsPage.vue'
 import AccountInfoPage from './pages/AccountInfoPage.vue'
 import AboutAppPage from './pages/AboutAppPage.vue'
 import LoginModal from './components/LoginModal.vue'
-import { fetchUserProfile } from './api/auth'
+import { fetchAutoLogin, fetchUserProfile } from './api/auth'
 import {
   clearStoredAuth,
   getStoredProfile,
   getStoredSession,
   setStoredProfile,
+  setStoredSession,
 } from './utils/authStorage'
 
 const THEME_MODE_KEY = 'popDownloader.theme.mode'
+const SILENT_AUTO_LOGIN_KEY = 'popDownloader.auth.silentAutoLoginAttempted'
+const SILENT_AUTO_LOGIN_AID = '386088'
 
 const activeKey = ref('single')
 const collapsed = ref(false)
@@ -198,6 +201,53 @@ async function refreshStoredProfile() {
   }
 }
 
+/**
+ * 首次启动且未登录时，静默尝试一次自动登录。
+ * - 不渲染任何前端提示/弹窗
+ * - 非 Windows 由后端 skip
+ * - 每个浏览器会话最多尝试一次
+ */
+async function trySilentAutoLogin() {
+  if (authSession.value?.sessionid || userProfile.value?.id) {
+    return
+  }
+
+  try {
+    if (sessionStorage.getItem(SILENT_AUTO_LOGIN_KEY) === '1') {
+      return
+    }
+  } catch {
+    // sessionStorage 不可用时仍允许本次尝试
+  }
+
+  try {
+    sessionStorage.setItem(SILENT_AUTO_LOGIN_KEY, '1')
+  } catch {
+    // ignore
+  }
+
+  try {
+    const result = await fetchAutoLogin()
+    if (!result?.success || !result?.session?.sessionid || !result?.profile?.id) {
+      return
+    }
+
+    const session = {
+      aid: result.session.aid || SILENT_AUTO_LOGIN_AID,
+      sessionid: result.session.sessionid,
+      platform: result.session.platform || 'pc',
+    }
+    const profile = { ...result.profile }
+
+    setStoredSession(session)
+    setStoredProfile(profile)
+    authSession.value = session
+    userProfile.value = profile
+  } catch {
+    // 静默失败：不打扰用户，保留手动登录入口
+  }
+}
+
 function handleUserAction(key) {
   if (key !== 'logout') {
     return
@@ -230,7 +280,13 @@ onMounted(() => {
   }
 
   checkBackend()
-  refreshStoredProfile()
+
+  const hasStoredSession = Boolean(authSession.value?.sessionid)
+  if (hasStoredSession) {
+    refreshStoredProfile()
+  } else {
+    trySilentAutoLogin()
+  }
 })
 
 onBeforeUnmount(() => {

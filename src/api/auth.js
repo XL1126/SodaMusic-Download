@@ -81,6 +81,27 @@ export async function fetchOneClickLoginSupport() {
   return payload
 }
 
+/**
+ * 静默自动登录：后端读取本机 SodaMusic Cookies 并校验资料。
+ * 前端调用时不展示任何 UI；非 Windows 时后端 skipped=true。
+ */
+export async function fetchAutoLogin() {
+  const response = await fetch('/api/auth/auto-login')
+  let payload = null
+
+  try {
+    payload = await response.json()
+  } catch {
+    throw new Error('自动登录接口返回无效数据')
+  }
+
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || '自动登录失败')
+  }
+
+  return payload
+}
+
 export async function fetchFileLoginSupport({ fileName, fileContentBase64 }) {
   const response = await fetch('/api/auth/file-login-support', {
     method: 'POST',

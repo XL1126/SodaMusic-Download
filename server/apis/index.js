@@ -3,6 +3,7 @@ const authQrcodeApi = require('./auth-qrcode')
 const authQrcodeStatusApi = require('./auth-qrcode-status')
 const authFileLoginSupportApi = require('./auth-file-login-support')
 const authOneClickSupportApi = require('./auth-one-click-support')
+const authAutoLoginApi = require('./auth-auto-login')
 const authProfileApi = require('./auth-profile')
 const mePlaylistsApi = require('./me-playlists')
 const meCollectionMixedApi = require('./me-collection-mixed')
@@ -23,6 +24,7 @@ module.exports = [
   authQrcodeStatusApi,
   authFileLoginSupportApi,
   authOneClickSupportApi,
+  authAutoLoginApi,
   authProfileApi,
   mePlaylistsApi,
   meCollectionMixedApi,
