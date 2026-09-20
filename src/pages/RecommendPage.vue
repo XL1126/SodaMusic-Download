@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   NButton,
   NIcon,
@@ -15,12 +15,20 @@ import {
   PlayOutline,
   RadioOutline,
   RefreshOutline,
+  VolumeHighOutline,
+  VolumeLowOutline,
+  VolumeMuteOutline,
 } from '@vicons/ionicons5'
 import { getStoredSession } from '../utils/authStorage'
 import {
-  fetchRecommendPlayInfo,
-  fetchRecommendTracks,
-} from '../api/recommend'
+  ensureWindowPrepared,
+  getPreparedTrack,
+  getRecommendSnapshot,
+  refreshRecommendQueue,
+  setCurrentIndex,
+  subscribeRecommendQueue,
+  warmupRecommendQueue,
+} from '../utils/recommendQueue'
 
 const props = defineProps({
   isAuthenticated: {
@@ -35,10 +43,12 @@ const props = defineProps({
 
 const { message } = createDiscreteApi(['message'])
 
-const tracks = ref([])
+const VOLUME_KEY = 'sodaRecommend.volume'
+
 const loading = ref(false)
 const starting = ref(false)
 const currentIndex = ref(-1)
+const tracks = ref([])
 const currentTrack = ref(null)
 const lyricLines = ref([])
 const activeLyricIndex = ref(-1)
@@ -46,13 +56,34 @@ const activeLineProgress = ref(0)
 const streamUrl = ref('')
 const audioRef = ref(null)
 const lyricListRef = ref(null)
+const barRef = ref(null)
 const playing = ref(false)
 const currentTime = ref(0)
 const duration = ref(0)
 const coverSrc = ref('')
+const volume = ref(clampVolume(Number(localStorage.getItem(VOLUME_KEY))))
+const seeking = ref(false)
+const seekPreviewTime = ref(0)
+const unsubscribe = ref(null)
 
 const hasLogin = computed(() => Boolean(getStoredSession()?.sessionid))
 const queueSize = computed(() => tracks.value.length)
+const displayTime = computed(() => (seeking.value ? seekPreviewTime.value : currentTime.value))
+const progressPercent = computed(() => {
+  const total = duration.value
+  if (!total || !Number.isFinite(total)) return 0
+  return Math.min(100, Math.max(0, (displayTime.value / total) * 100))
+})
+const volumeIcon = computed(() => {
+  if (volume.value <= 0) return VolumeMuteOutline
+  if (volume.value < 0.45) return VolumeLowOutline
+  return VolumeHighOutline
+})
+
+function clampVolume(value) {
+  if (!Number.isFinite(value)) return 0.8
+  return Math.min(1, Math.max(0, value))
+}
 
 function formatTime(seconds) {
   const value = Number(seconds) || 0
@@ -70,6 +101,12 @@ function resolveCover(trackLike = {}) {
     trackLike.coverProxy
     || (trackLike.cover ? `/api/recommend/image?src=${encodeURIComponent(trackLike.cover)}` : '')
   )
+}
+
+function syncSnapshot(snapshot) {
+  tracks.value = snapshot.tracks || []
+  currentIndex.value = snapshot.currentIndex
+  loading.value = Boolean(snapshot.loading)
 }
 
 function lineProgress(line, next, time) {
@@ -140,127 +177,99 @@ function updateMediaSession(track) {
   }
 }
 
+function applyVolumeToAudio() {
+  const audio = audioRef.value
+  if (!audio) return
+  audio.volume = clampVolume(volume.value)
+}
+
 function resetPlayerUi() {
   playing.value = false
   currentTime.value = 0
   duration.value = 0
+  seeking.value = false
+  seekPreviewTime.value = 0
   activeLyricIndex.value = -1
   activeLineProgress.value = 0
 }
 
-async function ensurePlayInfo(track) {
-  const payload = await fetchRecommendPlayInfo(track.id)
-  const detail = payload?.track || {}
-  return {
-    ...track,
-    name: detail.name || track.name,
-    artistText: detail.artistText || track.artistText,
-    artists: detail.artists?.length ? detail.artists : track.artists,
-    album: detail.album || track.album,
-    cover: detail.cover || track.cover,
-    coverProxy: detail.coverProxy || resolveCover(detail.cover || track.cover),
-    duration: detail.duration || track.duration || 0,
-    lyricLines: detail.lyricLines || [],
-    lyricText: detail.lyricText || '',
-    streamUrl: payload?.stream_url || '',
-  }
+function applyTrackToUi(info) {
+  currentTrack.value = info
+  lyricLines.value = info.lyricLines || []
+  duration.value = Number(info.duration) || 0
+  coverSrc.value = resolveCover(info)
+  streamUrl.value = info.streamUrl || ''
+  updateMediaSession(info)
+  syncLyricIndex(0)
 }
 
-async function loadQueueAndMaybePlay({ autoplay = false } = {}) {
-  if (!hasLogin.value && !props.isAuthenticated) {
-    message.warning('请先登录后再使用汽水推荐')
-    return
+async function loadIntoAudio(info, { autoplay = true } = {}) {
+  const audio = audioRef.value
+  if (!audio || !info?.streamUrl) {
+    throw new Error('未能获取浏览器播放地址')
   }
 
-  loading.value = true
-  try {
-    const payload = await fetchRecommendTracks({
-      count: 20,
-      preferenceMode: 'fresh',
-      feedMode: 'track',
-      isFirstRequest: tracks.value.length === 0,
-      playedTracks: tracks.value.slice(0, 8).map((item) => ({ id: item.id })),
-    })
+  applyVolumeToAudio()
+  audio.src = info.streamUrl
+  audio.load()
 
-    const nextTracks = Array.isArray(payload?.tracks) ? payload.tracks : []
-    if (nextTracks.length === 0) {
-      message.info('暂未获取到推荐曲目，可稍后重试')
-      return
+  await new Promise((resolve) => {
+    const onReady = () => {
+      cleanup()
+      resolve()
     }
+    const onFail = () => {
+      cleanup()
+      resolve()
+    }
+    const cleanup = () => {
+      audio.removeEventListener('loadedmetadata', onReady)
+      audio.removeEventListener('error', onFail)
+    }
+    audio.addEventListener('loadedmetadata', onReady, { once: true })
+    audio.addEventListener('error', onFail, { once: true })
+    // 兜底，避免事件未触发卡死
+    setTimeout(cleanup, 8000)
+  })
 
-    const seen = new Set(tracks.value.map((item) => item.id))
-    const merged = [...tracks.value]
-    for (const item of nextTracks) {
-      if (!item?.id || seen.has(item.id)) continue
-      seen.add(item.id)
-      merged.push(item)
-    }
-    tracks.value = merged
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    duration.value = audio.duration
+  }
 
-    if (autoplay && currentIndex.value < 0) {
-      await playTrackAt(0)
-      return
-    }
-
-    if (currentIndex.value < 0 && merged.length > 0) {
-      starting.value = true
-      try {
-        const info = await ensurePlayInfo(merged[0])
-        currentIndex.value = 0
-        currentTrack.value = info
-        tracks.value[0] = { ...merged[0], ...info }
-        lyricLines.value = info.lyricLines || []
-        duration.value = info.duration || 0
-        coverSrc.value = resolveCover(info)
-        streamUrl.value = info.streamUrl || ''
-        updateMediaSession(info)
-        syncLyricIndex(0)
-      } catch {
-        // ignore prepare errors
-      } finally {
-        starting.value = false
-      }
-    }
-  } catch (error) {
-    message.error(parseApiError(error, '获取汽水推荐失败'))
-  } finally {
-    loading.value = false
+  if (autoplay) {
+    await audio.play()
+    playing.value = true
   }
 }
 
 async function playTrackAt(index, { autoplay = true } = {}) {
   if (!tracks.value.length) {
-    await loadQueueAndMaybePlay({ autoplay: true })
+    await warmupRecommendQueue()
+    syncSnapshot(getRecommendSnapshot())
+  }
+  if (!tracks.value.length) {
+    message.info('暂无推荐曲目，请先登录或稍后重试')
     return
   }
-  if (index < 0 || index >= tracks.value.length) return
 
-  const track = tracks.value[index]
-  currentIndex.value = index
+  const target = ((index % tracks.value.length) + tracks.value.length) % tracks.value.length
   starting.value = true
   resetPlayerUi()
 
   try {
-    const info = await ensurePlayInfo(track)
-    currentTrack.value = info
-    lyricLines.value = info.lyricLines || []
-    duration.value = info.duration || 0
-    tracks.value[index] = { ...track, ...info }
-    coverSrc.value = resolveCover(info)
-    streamUrl.value = info.streamUrl || ''
-    updateMediaSession(info)
+    setCurrentIndex(target)
+    currentIndex.value = target
 
-    const audio = audioRef.value
-    if (audio && streamUrl.value) {
-      audio.src = streamUrl.value
-      audio.load()
-      if (autoplay) {
-        await audio.play()
-        playing.value = true
-      }
-    } else {
-      message.error('未能获取浏览器播放地址')
+    const prepared = await getPreparedTrack(target)
+    const info = prepared?.track || tracks.value[target]
+    if (!info?.streamUrl) {
+      throw new Error('该曲目暂无播放地址')
     }
+
+    tracks.value[target] = { ...tracks.value[target], ...info }
+    applyTrackToUi(info)
+    await loadIntoAudio(info, { autoplay })
+    ensureWindowPrepared()
   } catch (error) {
     message.error(parseApiError(error, '播放失败'))
   } finally {
@@ -269,19 +278,19 @@ async function playTrackAt(index, { autoplay = true } = {}) {
 }
 
 async function togglePlay() {
-  if (!currentTrack.value || !streamUrl.value) {
+  const audio = audioRef.value
+  if (!audio || !currentTrack.value) {
     await playTrackAt(currentIndex.value >= 0 ? currentIndex.value : 0)
     return
   }
 
-  const audio = audioRef.value
-  if (!audio) return
   if (audio.paused) {
     try {
       if (!audio.src && streamUrl.value) {
-        audio.src = streamUrl.value
-        audio.load()
+        await loadIntoAudio(currentTrack.value, { autoplay: true })
+        return
       }
+      applyVolumeToAudio()
       await audio.play()
       playing.value = true
     } catch (error) {
@@ -295,20 +304,27 @@ async function togglePlay() {
 
 async function playRelative(step) {
   if (!tracks.value.length) return
-  let next = currentIndex.value + step
-  if (next < 0) next = tracks.value.length - 1
-  if (next >= tracks.value.length) next = 0
+  const next = ((currentIndex.value + step) % tracks.value.length + tracks.value.length) % tracks.value.length
   await playTrackAt(next)
 }
 
 function onTimeUpdate() {
+  if (seeking.value) return
   const audio = audioRef.value
   if (!audio) return
   currentTime.value = audio.currentTime || 0
-  if (audio.duration && Number.isFinite(audio.duration)) {
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
     duration.value = audio.duration
   }
   syncLyricIndex(currentTime.value)
+}
+
+function onLoadedMetadata() {
+  const audio = audioRef.value
+  if (!audio) return
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    duration.value = audio.duration
+  }
 }
 
 async function onAudioEnded() {
@@ -316,27 +332,104 @@ async function onAudioEnded() {
   await playRelative(1)
 }
 
-function onSeekInput(event) {
-  const value = Number(event.target.value) || 0
-  currentTime.value = value
-  if (audioRef.value) {
-    audioRef.value.currentTime = value
-  }
-  syncLyricIndex(value)
+function timeFromPointer(event) {
+  const bar = barRef.value
+  if (!bar) return 0
+  const rect = bar.getBoundingClientRect()
+  const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+  const total = duration.value
+  if (!total || !Number.isFinite(total)) return 0
+  return ratio * total
 }
 
-const progressPercent = computed(() => {
-  if (!duration.value) return 0
-  return Math.min(100, (currentTime.value / duration.value) * 100)
+function onBarPointerDown(event) {
+  if (!duration.value || !Number.isFinite(duration.value)) return
+  seeking.value = true
+  seekPreviewTime.value = timeFromPointer(event)
+  try {
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  } catch {
+    // ignore
+  }
+}
+
+function onBarPointerMove(event) {
+  if (!seeking.value) return
+  seekPreviewTime.value = timeFromPointer(event)
+}
+
+async function onBarPointerUp(event) {
+  if (!seeking.value) return
+  const targetTime = timeFromPointer(event)
+  seeking.value = false
+  seekPreviewTime.value = targetTime
+  currentTime.value = targetTime
+  syncLyricIndex(targetTime)
+
+  const audio = audioRef.value
+  if (!audio) return
+  try {
+    if (!audio.src && streamUrl.value) {
+      await loadIntoAudio(currentTrack.value, { autoplay: playing.value })
+    }
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
+      duration.value = audio.duration
+    }
+    audio.currentTime = Math.min(targetTime, Math.max(0, duration.value - 0.05))
+  } catch (error) {
+    message.error(parseApiError(error, '调整进度失败'))
+  }
+}
+
+function onVolumeInput(event) {
+  const value = clampVolume(Number(event.target.value))
+  volume.value = value
+  localStorage.setItem(VOLUME_KEY, String(value))
+  applyVolumeToAudio()
+}
+
+function toggleMute() {
+  volume.value = volume.value > 0 ? 0 : 0.8
+  localStorage.setItem(VOLUME_KEY, String(volume.value))
+  applyVolumeToAudio()
+}
+
+async function handleRefresh() {
+  try {
+    loading.value = true
+    await refreshRecommendQueue({ append: true })
+    syncSnapshot(getRecommendSnapshot())
+    message.success('已刷新推荐队列')
+    ensureWindowPrepared()
+  } catch (error) {
+    message.error(parseApiError(error, '刷新推荐失败'))
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(volume, () => {
+  applyVolumeToAudio()
 })
 
 onMounted(async () => {
+  unsubscribe.value = subscribeRecommendQueue(syncSnapshot)
+  syncSnapshot(getRecommendSnapshot())
+
   if (props.isAuthenticated || hasLogin.value) {
-    await loadQueueAndMaybePlay({ autoplay: false })
+    if (!tracks.value.length) {
+      await warmupRecommendQueue()
+      syncSnapshot(getRecommendSnapshot())
+    }
+    // 进入页面时准备当前曲，不强制自动播放（浏览器策略）
+    if (currentIndex.value >= 0 && tracks.value.length) {
+      await playTrackAt(currentIndex.value, { autoplay: false })
+    }
   }
 })
 
 onBeforeUnmount(() => {
+  unsubscribe.value?.()
   try {
     audioRef.value?.pause()
   } catch {
@@ -359,7 +452,7 @@ onBeforeUnmount(() => {
           随机播放
         </n-tag>
       </div>
-      <n-button secondary size="small" :loading="loading" @click="loadQueueAndMaybePlay({ autoplay: false })">
+      <n-button secondary size="small" :loading="loading" @click="handleRefresh">
         <template #icon>
           <n-icon><refresh-outline /></n-icon>
         </template>
@@ -368,15 +461,15 @@ onBeforeUnmount(() => {
     </div>
 
     <n-spin :show="loading || starting">
-      <div class="soda-main">
-        <div class="soda-cover-wrap">
+      <div class="soda-layout">
+        <div class="soda-left">
           <div
             class="soda-cover"
             :class="{ 'has-image': coverSrc }"
             :style="coverSrc ? { backgroundImage: `url(${coverSrc})` } : null"
           >
             <div class="soda-cover-fallback">
-              <n-icon size="48" color="#00cb64">
+              <n-icon size="52" color="#00cb64">
                 <radio-outline />
               </n-icon>
             </div>
@@ -384,23 +477,23 @@ onBeforeUnmount(() => {
           <div class="soda-vinyl" :class="{ playing }" />
         </div>
 
-        <section class="soda-panel">
+        <section class="soda-right">
           <div class="soda-meta">
             <h1 class="soda-title">
-              {{ currentTrack?.name || '点击播放，开始收听汽水推荐' }}
+              {{ currentTrack?.name || '汽水推荐' }}
             </h1>
             <p class="soda-artist">
               {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '随机音乐' }}
             </p>
             <p class="soda-album">
               {{ currentTrack?.album || '浏览器播放' }}
-              <span v-if="queueSize"> · 队列 {{ queueSize }} 首</span>
+              <span v-if="queueSize"> · 队列 {{ queueSize }}</span>
             </p>
           </div>
 
           <div ref="lyricListRef" class="soda-lyric">
             <div v-if="!lyricLines.length" class="soda-lyric-empty">
-              {{ currentTrack ? '暂无歌词' : '歌词将随播放进度逐句高亮' }}
+              {{ currentTrack ? '暂无歌词' : '启动项目后会自动预取随机音乐' }}
             </div>
             <div
               v-for="(line, index) in lyricLines"
@@ -423,25 +516,46 @@ onBeforeUnmount(() => {
               >{{ line.text }}</span>
             </div>
           </div>
+        </section>
+      </div>
 
-          <div class="soda-progress">
-            <span class="soda-time">{{ formatTime(currentTime) }}</span>
-            <div class="soda-bar">
-              <div class="soda-bar-fill" :style="{ width: `${progressPercent}%` }" />
-              <input
-                class="soda-range"
-                type="range"
-                min="0"
-                :max="Math.max(duration, 0.1)"
-                step="0.1"
-                :value="currentTime"
-                @input="onSeekInput"
-              />
-            </div>
-            <span class="soda-time">{{ formatTime(duration) }}</span>
+      <div class="soda-bottom">
+        <div
+          ref="barRef"
+          class="soda-progress"
+          @pointerdown="onBarPointerDown"
+          @pointermove="onBarPointerMove"
+          @pointerup="onBarPointerUp"
+          @pointercancel="onBarPointerUp"
+        >
+          <span class="soda-time">{{ formatTime(displayTime) }}</span>
+          <div class="soda-bar">
+            <div class="soda-bar-fill" :style="{ width: `${progressPercent}%` }" />
+            <div class="soda-bar-thumb" :style="{ left: `${progressPercent}%` }" />
+          </div>
+          <span class="soda-time">{{ formatTime(duration) }}</span>
+        </div>
+
+        <div class="soda-controls">
+          <div class="soda-volume">
+            <n-button text class="soda-volume-btn" @click="toggleMute">
+              <template #icon>
+                <n-icon :size="18"><component :is="volumeIcon" /></n-icon>
+              </template>
+            </n-button>
+            <input
+              class="soda-volume-range"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="volume"
+              @input="onVolumeInput"
+            />
+            <span class="soda-volume-text">{{ Math.round(volume * 100) }}%</span>
           </div>
 
-          <div class="soda-controls">
+          <div class="soda-buttons">
             <n-button circle secondary size="large" :disabled="!queueSize" @click="playRelative(-1)">
               <template #icon>
                 <n-icon><play-skip-back-outline /></n-icon>
@@ -471,16 +585,17 @@ onBeforeUnmount(() => {
           </div>
 
           <n-text depth="3" class="soda-hint">
-            封面经本地代理加载；歌词按播放进度逐句填充高亮
+            启动即预取 · 当前曲上下各缓冲 2 首
           </n-text>
-        </section>
+        </div>
       </div>
     </n-spin>
 
     <audio
       ref="audioRef"
-      preload="none"
+      preload="auto"
       @timeupdate="onTimeUpdate"
+      @loadedmetadata="onLoadedMetadata"
       @ended="onAudioEnded"
       @play="playing = true"
       @pause="playing = false"
@@ -500,15 +615,16 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: -20px;
   background:
-    radial-gradient(circle at 18% 18%, rgba(0, 203, 100, 0.2), transparent 40%),
-    radial-gradient(circle at 80% 0%, rgba(49, 228, 76, 0.1), transparent 32%),
+    radial-gradient(circle at 18% 18%, rgba(0, 203, 100, 0.22), transparent 42%),
+    radial-gradient(circle at 80% 0%, rgba(49, 228, 76, 0.1), transparent 34%),
     linear-gradient(160deg, #101814, #090c0a 60%, #0d1410);
   border-radius: 18px;
   z-index: 0;
 }
 
 .soda-top,
-.soda-main {
+.soda-layout,
+.soda-bottom {
   position: relative;
   z-index: 1;
 }
@@ -517,7 +633,7 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .soda-brand {
@@ -527,32 +643,32 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.soda-main {
+.soda-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 24px;
-  align-items: center;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 28px;
+  align-items: stretch;
 }
 
 @media (max-width: 760px) {
-  .soda-main {
+  .soda-layout {
     grid-template-columns: 1fr;
   }
 }
 
-.soda-cover-wrap {
+.soda-left {
   position: relative;
-  width: 260px;
-  height: 260px;
-  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .soda-cover {
-  width: 260px;
-  height: 260px;
-  border-radius: 22px;
+  width: min(280px, 70vw);
+  aspect-ratio: 1;
+  border-radius: 24px;
   background: linear-gradient(145deg, rgba(0, 203, 100, 0.22), rgba(0, 0, 0, 0.4)) center/cover no-repeat;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.42);
   position: relative;
   z-index: 2;
   overflow: hidden;
@@ -572,15 +688,15 @@ onBeforeUnmount(() => {
 
 .soda-vinyl {
   position: absolute;
-  right: -40px;
+  right: max(0px, calc(50% - 180px));
   top: 50%;
-  width: 160px;
-  height: 160px;
-  margin-top: -80px;
+  width: 150px;
+  height: 150px;
+  margin-top: -75px;
   border-radius: 50%;
   background: radial-gradient(circle at center, #222 0 18%, #111 19% 22%, #1b1b1b 23% 100%);
   z-index: 1;
-  opacity: 0.85;
+  opacity: 0.88;
 }
 
 .soda-vinyl.playing {
@@ -595,12 +711,15 @@ onBeforeUnmount(() => {
   .soda-vinyl.playing { animation: none; }
 }
 
-.soda-panel {
+.soda-right {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   background: rgba(18, 22, 20, 0.72);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 20px;
-  padding: 22px;
+  padding: 22px 24px;
+  min-height: 320px;
 }
 
 .soda-title {
@@ -623,15 +742,27 @@ onBeforeUnmount(() => {
   color: rgba(244, 247, 245, 0.45);
 }
 
+/* 歌词区：隐藏滚动条 */
 .soda-lyric {
-  margin-top: 16px;
-  height: 170px;
+  margin-top: 14px;
+  flex: 1;
+  min-height: 180px;
+  max-height: 260px;
   overflow: auto;
-  mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
+}
+
+.soda-lyric::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .soda-lyric-empty {
   height: 100%;
+  min-height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -673,12 +804,22 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-.soda-progress {
+.soda-bottom {
   margin-top: 18px;
+  background: rgba(18, 22, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 16px 20px 18px;
+}
+
+.soda-progress {
   display: grid;
   grid-template-columns: 44px 1fr 44px;
   gap: 10px;
   align-items: center;
+  user-select: none;
+  touch-action: none;
+  cursor: pointer;
 }
 
 .soda-time {
@@ -692,25 +833,60 @@ onBeforeUnmount(() => {
   height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
-  overflow: visible;
 }
 
 .soda-bar-fill {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #00cb64, #31e44c);
+  pointer-events: none;
 }
 
-.soda-range {
+.soda-bar-thumb {
   position: absolute;
-  inset: -8px 0;
-  width: 100%;
-  opacity: 0;
-  cursor: pointer;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #00cb64;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 .soda-controls {
-  margin-top: 18px;
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.soda-volume {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.soda-volume-btn {
+  color: rgba(244, 247, 245, 0.85);
+}
+
+.soda-volume-range {
+  width: min(140px, 28vw);
+  accent-color: #00cb64;
+}
+
+.soda-volume-text {
+  font-size: 12px;
+  color: rgba(244, 247, 245, 0.45);
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.soda-buttons {
   display: flex;
   justify-content: center;
   gap: 14px;
@@ -721,9 +897,20 @@ onBeforeUnmount(() => {
 }
 
 .soda-hint {
-  display: block;
-  margin-top: 14px;
-  text-align: center;
+  justify-self: end;
   font-size: 12px;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .soda-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .soda-volume,
+  .soda-hint {
+    justify-content: center;
+    justify-self: center;
+  }
 }
 </style>

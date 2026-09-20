@@ -39,6 +39,7 @@ import AccountInfoPage from './pages/AccountInfoPage.vue'
 import AboutAppPage from './pages/AboutAppPage.vue'
 import LoginModal from './components/LoginModal.vue'
 import { fetchAutoLogin, fetchUserProfile } from './api/auth'
+import { warmupRecommendQueue } from './utils/recommendQueue'
 import {
   clearStoredAuth,
   getStoredProfile,
@@ -247,6 +248,8 @@ async function trySilentAutoLogin() {
     setStoredProfile(profile)
     authSession.value = session
     userProfile.value = profile
+    // 静默登录成功后同样启动推荐预取
+    warmupRecommendQueue().catch(() => {})
   } catch {
     // 静默失败：不打扰用户，保留手动登录入口
   }
@@ -288,6 +291,8 @@ onMounted(() => {
   const hasStoredSession = Boolean(authSession.value?.sessionid)
   if (hasStoredSession) {
     refreshStoredProfile()
+    // 项目启动即预取随机推荐队列
+    warmupRecommendQueue().catch(() => {})
   } else {
     trySilentAutoLogin()
   }
