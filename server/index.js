@@ -4,7 +4,7 @@ const fs = require('fs')
 const { spawn } = require('child_process')
 
 const APP_NAME = 'SodaMusic-Download'
-const APP_VERSION = 'v2.3.0'
+const APP_VERSION = 'v2.4.0'
 const BOOT_STARTED_AT = Date.now()
 
 const { t } = require('./utils/i18n')

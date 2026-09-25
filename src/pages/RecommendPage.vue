@@ -1,14 +1,15 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import {
   NButton,
   NIcon,
   NSpin,
   NTag,
-  NText,
   createDiscreteApi,
 } from 'naive-ui'
 import {
+  Heart,
+  HeartOutline,
   PauseOutline,
   PlaySkipBackOutline,
   PlaySkipForwardOutline,
@@ -20,6 +21,7 @@ import {
   VolumeMuteOutline,
 } from '@vicons/ionicons5'
 import { getStoredSession } from '../utils/authStorage'
+import { createPlayEngine } from '../utils/playEngine'
 import {
   ensureWindowPrepared,
   getPreparedTrack,
@@ -29,6 +31,10 @@ import {
   subscribeRecommendQueue,
   warmupRecommendQueue,
 } from '../utils/recommendQueue'
+import {
+  likeRecommendTrack,
+  reportRecommendPlay,
+} from '../api/recommend'
 
 const props = defineProps({
   isAuthenticated: {
@@ -44,6 +50,7 @@ const props = defineProps({
 const { message } = createDiscreteApi(['message'])
 
 const VOLUME_KEY = 'sodaRecommend.volume'
+const REPORT_EVERY_MS = 15000
 
 const loading = ref(false)
 const starting = ref(false)
@@ -53,8 +60,6 @@ const currentTrack = ref(null)
 const lyricLines = ref([])
 const activeLyricIndex = ref(-1)
 const activeLineProgress = ref(0)
-const streamUrl = ref('')
-const audioRef = ref(null)
 const lyricListRef = ref(null)
 const barRef = ref(null)
 const playing = ref(false)
@@ -62,20 +67,28 @@ const currentTime = ref(0)
 const duration = ref(0)
 const coverSrc = ref('')
 const volume = ref(clampVolume(Number(localStorage.getItem(VOLUME_KEY))))
+const muted = ref(false)
 const seeking = ref(false)
 const seekPreviewTime = ref(0)
+const liked = ref(false)
+const liking = ref(false)
+const playError = ref('')
 const unsubscribe = ref(null)
+const engine = shallowRef(null)
+const startedAt = ref(0)
+const lastReportMs = ref(0)
+const mediaSessionHandlers = ref(false)
 
 const hasLogin = computed(() => Boolean(getStoredSession()?.sessionid))
 const queueSize = computed(() => tracks.value.length)
 const displayTime = computed(() => (seeking.value ? seekPreviewTime.value : currentTime.value))
 const progressPercent = computed(() => {
   const total = duration.value
-  if (!total || !Number.isFinite(total)) return 0
+  if (!total || !Number.isFinite(total) || total <= 0) return 0
   return Math.min(100, Math.max(0, (displayTime.value / total) * 100))
 })
 const volumeIcon = computed(() => {
-  if (volume.value <= 0) return VolumeMuteOutline
+  if (muted.value || volume.value <= 0) return VolumeMuteOutline
   if (volume.value < 0.45) return VolumeLowOutline
   return VolumeHighOutline
 })
@@ -168,29 +181,63 @@ function updateMediaSession(track) {
       album: track.album || '汽水推荐',
       artwork,
     })
-    navigator.mediaSession.setActionHandler('play', () => togglePlay())
-    navigator.mediaSession.setActionHandler('pause', () => togglePlay())
-    navigator.mediaSession.setActionHandler('previoustrack', () => playRelative(-1))
-    navigator.mediaSession.setActionHandler('nexttrack', () => playRelative(1))
+    if (!mediaSessionHandlers.value) {
+      navigator.mediaSession.setActionHandler('play', () => engine.value?.play().catch(() => {}))
+      navigator.mediaSession.setActionHandler('pause', () => engine.value?.pause())
+      navigator.mediaSession.setActionHandler('previoustrack', () => playRelative(-1))
+      navigator.mediaSession.setActionHandler('nexttrack', () => playRelative(1))
+      mediaSessionHandlers.value = true
+    }
+    navigator.mediaSession.playbackState = playing.value ? 'playing' : 'paused'
   } catch {
     // ignore
   }
 }
 
-function applyVolumeToAudio() {
-  const audio = audioRef.value
-  if (!audio) return
-  audio.volume = clampVolume(volume.value)
+async function flushPlayReport(event = 'progress') {
+  if (!currentTrack.value?.id || !startedAt.value) return
+  const playedMs = engine.value?.getPlayedMs() || 0
+  if (playedMs < 500 && event === 'progress') return
+
+  await reportRecommendPlay({
+    trackId: currentTrack.value.id,
+    playMs: playedMs,
+    startedAt: startedAt.value,
+    scene: 'recommend',
+    event,
+  })
+  engine.value?.resetPlayedMs()
+  lastReportMs.value = Date.now()
 }
 
-function resetPlayerUi() {
-  playing.value = false
-  currentTime.value = 0
-  duration.value = 0
-  seeking.value = false
-  seekPreviewTime.value = 0
-  activeLyricIndex.value = -1
-  activeLineProgress.value = 0
+function onEngineChange(payload) {
+  playing.value = payload.playing
+  if (!seeking.value) {
+    currentTime.value = payload.currentTime || 0
+  }
+  if (payload.duration > 0) {
+    duration.value = payload.duration
+  }
+  playError.value = payload.error || ''
+  syncLyricIndex(displayTime.value)
+
+  if (playing.value && 'mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = 'playing'
+    } catch {
+      // ignore
+    }
+  } else if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = 'paused'
+    } catch {
+      // ignore
+    }
+  }
+
+  if (playing.value && startedAt.value && Date.now() - lastReportMs.value >= REPORT_EVERY_MS) {
+    flushPlayReport('progress').catch(() => {})
+  }
 }
 
 function applyTrackToUi(info) {
@@ -198,48 +245,11 @@ function applyTrackToUi(info) {
   lyricLines.value = info.lyricLines || []
   duration.value = Number(info.duration) || 0
   coverSrc.value = resolveCover(info)
-  streamUrl.value = info.streamUrl || ''
-  updateMediaSession(info)
+  liked.value = Boolean(info.liked || info.isCollected)
+  activeLyricIndex.value = -1
+  activeLineProgress.value = 0
   syncLyricIndex(0)
-}
-
-async function loadIntoAudio(info, { autoplay = true } = {}) {
-  const audio = audioRef.value
-  if (!audio || !info?.streamUrl) {
-    throw new Error('未能获取浏览器播放地址')
-  }
-
-  applyVolumeToAudio()
-  audio.src = info.streamUrl
-  audio.load()
-
-  await new Promise((resolve) => {
-    const onReady = () => {
-      cleanup()
-      resolve()
-    }
-    const onFail = () => {
-      cleanup()
-      resolve()
-    }
-    const cleanup = () => {
-      audio.removeEventListener('loadedmetadata', onReady)
-      audio.removeEventListener('error', onFail)
-    }
-    audio.addEventListener('loadedmetadata', onReady, { once: true })
-    audio.addEventListener('error', onFail, { once: true })
-    // 兜底，避免事件未触发卡死
-    setTimeout(cleanup, 8000)
-  })
-
-  if (Number.isFinite(audio.duration) && audio.duration > 0) {
-    duration.value = audio.duration
-  }
-
-  if (autoplay) {
-    await audio.play()
-    playing.value = true
-  }
+  updateMediaSession(info)
 }
 
 async function playTrackAt(index, { autoplay = true } = {}) {
@@ -254,7 +264,10 @@ async function playTrackAt(index, { autoplay = true } = {}) {
 
   const target = ((index % tracks.value.length) + tracks.value.length) % tracks.value.length
   starting.value = true
-  resetPlayerUi()
+  playError.value = ''
+
+  // 切歌前结算上一首播放时长
+  await flushPlayReport('ended').catch(() => {})
 
   try {
     setCurrentIndex(target)
@@ -268,37 +281,49 @@ async function playTrackAt(index, { autoplay = true } = {}) {
 
     tracks.value[target] = { ...tracks.value[target], ...info }
     applyTrackToUi(info)
-    await loadIntoAudio(info, { autoplay })
+
+    startedAt.value = Date.now()
+    await engine.value.load({
+      src: info.streamUrl,
+      trackId: info.id,
+      autoplay,
+      startAt: 0,
+    })
+
     ensureWindowPrepared()
   } catch (error) {
-    message.error(parseApiError(error, '播放失败'))
+    // 自动播放被拒绝时不算致命错误，展示可点击播放
+    const msg = parseApiError(error, '播放失败')
+    if (/play\(\)|NotAllowedError|用户没有交互/i.test(msg)) {
+      playError.value = '点击播放按钮开始收听'
+    } else {
+      playError.value = msg
+      message.error(msg)
+      // 失败自动跳下一首（避免卡死）
+      if (tracks.value.length > 1) {
+        setTimeout(() => {
+          playRelative(1)
+        }, 400)
+      }
+    }
   } finally {
     starting.value = false
   }
 }
 
 async function togglePlay() {
-  const audio = audioRef.value
-  if (!audio || !currentTrack.value) {
+  if (!engine.value) return
+  if (!currentTrack.value) {
     await playTrackAt(currentIndex.value >= 0 ? currentIndex.value : 0)
     return
   }
 
-  if (audio.paused) {
-    try {
-      if (!audio.src && streamUrl.value) {
-        await loadIntoAudio(currentTrack.value, { autoplay: true })
-        return
-      }
-      applyVolumeToAudio()
-      await audio.play()
-      playing.value = true
-    } catch (error) {
-      message.error(parseApiError(error, '播放失败'))
-    }
-  } else {
-    audio.pause()
-    playing.value = false
+  try {
+    await engine.value.toggle()
+    playError.value = ''
+  } catch (error) {
+    playError.value = parseApiError(error, '播放失败')
+    message.error(playError.value)
   }
 }
 
@@ -306,30 +331,6 @@ async function playRelative(step) {
   if (!tracks.value.length) return
   const next = ((currentIndex.value + step) % tracks.value.length + tracks.value.length) % tracks.value.length
   await playTrackAt(next)
-}
-
-function onTimeUpdate() {
-  if (seeking.value) return
-  const audio = audioRef.value
-  if (!audio) return
-  currentTime.value = audio.currentTime || 0
-  if (Number.isFinite(audio.duration) && audio.duration > 0) {
-    duration.value = audio.duration
-  }
-  syncLyricIndex(currentTime.value)
-}
-
-function onLoadedMetadata() {
-  const audio = audioRef.value
-  if (!audio) return
-  if (Number.isFinite(audio.duration) && audio.duration > 0) {
-    duration.value = audio.duration
-  }
-}
-
-async function onAudioEnded() {
-  playing.value = false
-  await playRelative(1)
 }
 
 function timeFromPointer(event) {
@@ -343,8 +344,9 @@ function timeFromPointer(event) {
 }
 
 function onBarPointerDown(event) {
-  if (!duration.value || !Number.isFinite(duration.value)) return
+  if (!duration.value || !Number.isFinite(duration.value) || duration.value <= 0) return
   seeking.value = true
+  engine.value?.beginSeek()
   seekPreviewTime.value = timeFromPointer(event)
   try {
     event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -361,37 +363,75 @@ function onBarPointerMove(event) {
 async function onBarPointerUp(event) {
   if (!seeking.value) return
   const targetTime = timeFromPointer(event)
-  seeking.value = false
+  seeking.value = true
   seekPreviewTime.value = targetTime
-  currentTime.value = targetTime
-  syncLyricIndex(targetTime)
 
-  const audio = audioRef.value
-  if (!audio) return
   try {
-    if (!audio.src && streamUrl.value) {
-      await loadIntoAudio(currentTrack.value, { autoplay: playing.value })
-    }
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      duration.value = audio.duration
-    }
-    audio.currentTime = Math.min(targetTime, Math.max(0, duration.value - 0.05))
+    const next = await engine.value.commitSeek(targetTime)
+    currentTime.value = next
+    seekPreviewTime.value = next
+    syncLyricIndex(next)
+    playError.value = ''
   } catch (error) {
-    message.error(parseApiError(error, '调整进度失败'))
+    playError.value = parseApiError(error, '调整进度失败')
+    message.error(playError.value)
+  } finally {
+    seeking.value = false
   }
 }
 
 function onVolumeInput(event) {
   const value = clampVolume(Number(event.target.value))
   volume.value = value
+  muted.value = value <= 0
   localStorage.setItem(VOLUME_KEY, String(value))
-  applyVolumeToAudio()
+  engine.value?.setVolume(value)
+  engine.value?.setMuted(value <= 0)
 }
 
 function toggleMute() {
-  volume.value = volume.value > 0 ? 0 : 0.8
-  localStorage.setItem(VOLUME_KEY, String(volume.value))
-  applyVolumeToAudio()
+  muted.value = !muted.value
+  if (!muted.value && volume.value <= 0) {
+    volume.value = 0.8
+    localStorage.setItem(VOLUME_KEY, String(volume.value))
+  }
+  engine.value?.setMuted(muted.value)
+  if (!muted.value) engine.value?.setVolume(volume.value)
+}
+
+async function toggleLike() {
+  if (!currentTrack.value?.id) return
+  if (!hasLogin.value && !props.isAuthenticated) {
+    message.warning('请先登录后再点赞')
+    return
+  }
+  if (liking.value) return
+
+  const next = !liked.value
+  liking.value = true
+  // 乐观更新
+  liked.value = next
+  currentTrack.value = {
+    ...currentTrack.value,
+    liked: next,
+    isCollected: next,
+  }
+
+  try {
+    await likeRecommendTrack(currentTrack.value.id, next)
+    message.success(next ? '已添加到喜欢' : '已取消喜欢')
+  } catch (error) {
+    // 回滚
+    liked.value = !next
+    currentTrack.value = {
+      ...currentTrack.value,
+      liked: !next,
+      isCollected: !next,
+    }
+    message.error(parseApiError(error, next ? '点赞失败' : '取消点赞失败'))
+  } finally {
+    liking.value = false
+  }
 }
 
 async function handleRefresh() {
@@ -408,11 +448,11 @@ async function handleRefresh() {
   }
 }
 
-watch(volume, () => {
-  applyVolumeToAudio()
-})
-
 onMounted(async () => {
+  engine.value = createPlayEngine({ onChange: onEngineChange })
+  engine.value.setVolume(volume.value)
+  engine.value.setMuted(muted.value)
+
   unsubscribe.value = subscribeRecommendQueue(syncSnapshot)
   syncSnapshot(getRecommendSnapshot())
 
@@ -421,79 +461,84 @@ onMounted(async () => {
       await warmupRecommendQueue()
       syncSnapshot(getRecommendSnapshot())
     }
-    // 进入页面时准备当前曲，不强制自动播放（浏览器策略）
     if (currentIndex.value >= 0 && tracks.value.length) {
       await playTrackAt(currentIndex.value, { autoplay: false })
     }
   }
 })
 
-onBeforeUnmount(() => {
+onBeforeUnmount(async () => {
   unsubscribe.value?.()
-  try {
-    audioRef.value?.pause()
-  } catch {
-    // ignore
-  }
+  await flushPlayReport('ended').catch(() => {})
+  engine.value?.destroy()
+  engine.value = null
 })
 </script>
 
 <template>
-  <div class="soda-player-page">
-    <div class="soda-bg" />
+  <div class="soda-player">
+    <div class="soda-backdrop" :style="coverSrc ? { backgroundImage: `url(${coverSrc})` } : null" />
+    <div class="soda-shade" />
 
-    <div class="soda-top">
+    <div class="soda-topbar">
       <div class="soda-brand">
-        <n-icon size="18" color="#00cb64">
-          <radio-outline />
-        </n-icon>
+        <span class="soda-logo" />
         <span>汽水推荐</span>
-        <n-tag size="small" round type="success" :bordered="false">
-          随机播放
-        </n-tag>
+        <span class="soda-pill">随机播放</span>
       </div>
-      <n-button secondary size="small" :loading="loading" @click="handleRefresh">
-        <template #icon>
-          <n-icon><refresh-outline /></n-icon>
-        </template>
-        换一批
-      </n-button>
+      <button class="soda-ghost-btn" type="button" :disabled="loading" @click="handleRefresh">
+        <n-icon :size="16"><refresh-outline /></n-icon>
+        <span>换一批</span>
+      </button>
     </div>
 
     <n-spin :show="loading || starting">
-      <div class="soda-layout">
-        <div class="soda-left">
+      <div class="soda-stage">
+        <aside class="soda-left">
           <div
             class="soda-cover"
             :class="{ 'has-image': coverSrc }"
             :style="coverSrc ? { backgroundImage: `url(${coverSrc})` } : null"
           >
             <div class="soda-cover-fallback">
-              <n-icon size="52" color="#00cb64">
+              <n-icon size="56" color="#00e27a">
                 <radio-outline />
               </n-icon>
             </div>
           </div>
-          <div class="soda-vinyl" :class="{ playing }" />
-        </div>
 
-        <section class="soda-right">
-          <div class="soda-meta">
-            <h1 class="soda-title">
+          <div class="soda-song">
+            <div class="soda-song-title">
               {{ currentTrack?.name || '汽水推荐' }}
-            </h1>
-            <p class="soda-artist">
+            </div>
+            <div class="soda-song-artist">
               {{ currentTrack?.artistText || currentTrack?.artists?.join(' / ') || '随机音乐' }}
-            </p>
-            <p class="soda-album">
+            </div>
+            <div class="soda-song-sub">
               {{ currentTrack?.album || '浏览器播放' }}
               <span v-if="queueSize"> · 队列 {{ queueSize }}</span>
-            </p>
-          </div>
+            </div>
 
+            <button
+              class="soda-like"
+              :class="{ active: liked }"
+              type="button"
+              :disabled="liking || !currentTrack?.id"
+              @click="toggleLike"
+            >
+              <n-icon :size="20">
+                <heart v-if="liked" />
+                <heart-outline v-else />
+              </n-icon>
+              <span>{{ liked ? '已喜欢' : '喜欢' }}</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="soda-right">
           <div ref="lyricListRef" class="soda-lyric">
             <div v-if="!lyricLines.length" class="soda-lyric-empty">
-              {{ currentTrack ? '暂无歌词' : '启动项目后会自动预取随机音乐' }}
+              {{ currentTrack ? '暂无歌词' : '启动后会自动预取随机音乐' }}
             </div>
             <div
               v-for="(line, index) in lyricLines"
@@ -516,10 +561,14 @@ onBeforeUnmount(() => {
               >{{ line.text }}</span>
             </div>
           </div>
+
+          <div v-if="playError" class="soda-error">
+            {{ playError }}
+          </div>
         </section>
       </div>
 
-      <div class="soda-bottom">
+      <div class="soda-control">
         <div
           ref="barRef"
           class="soda-progress"
@@ -536,142 +585,180 @@ onBeforeUnmount(() => {
           <span class="soda-time">{{ formatTime(duration) }}</span>
         </div>
 
-        <div class="soda-controls">
+        <div class="soda-actions">
           <div class="soda-volume">
-            <n-button text class="soda-volume-btn" @click="toggleMute">
-              <template #icon>
-                <n-icon :size="18"><component :is="volumeIcon" /></n-icon>
-              </template>
-            </n-button>
+            <button class="soda-icon-btn" type="button" @click="toggleMute">
+              <n-icon :size="18"><component :is="volumeIcon" /></n-icon>
+            </button>
             <input
               class="soda-volume-range"
               type="range"
               min="0"
               max="1"
               step="0.01"
-              :value="volume"
+              :value="muted ? 0 : volume"
               @input="onVolumeInput"
             />
-            <span class="soda-volume-text">{{ Math.round(volume * 100) }}%</span>
+            <span class="soda-volume-text">{{ Math.round((muted ? 0 : volume) * 100) }}%</span>
           </div>
 
-          <div class="soda-buttons">
-            <n-button circle secondary size="large" :disabled="!queueSize" @click="playRelative(-1)">
-              <template #icon>
-                <n-icon><play-skip-back-outline /></n-icon>
-              </template>
-            </n-button>
-            <n-button
-              circle
-              type="primary"
-              size="large"
-              class="soda-play"
-              :loading="starting"
-              :disabled="!queueSize && !currentTrack"
+          <div class="soda-main-actions">
+            <button class="soda-icon-btn" type="button" :disabled="!queueSize" @click="playRelative(-1)">
+              <n-icon :size="22"><play-skip-back-outline /></n-icon>
+            </button>
+            <button
+              class="soda-play-btn"
+              type="button"
+              :disabled="starting || (!queueSize && !currentTrack)"
               @click="togglePlay"
             >
-              <template #icon>
-                <n-icon size="22">
-                  <pause-outline v-if="playing" />
-                  <play-outline v-else />
-                </n-icon>
-              </template>
-            </n-button>
-            <n-button circle secondary size="large" :disabled="!queueSize" @click="playRelative(1)">
-              <template #icon>
-                <n-icon><play-skip-forward-outline /></n-icon>
-              </template>
-            </n-button>
+              <n-icon :size="26">
+                <pause-outline v-if="playing" />
+                <play-outline v-else />
+              </n-icon>
+            </button>
+            <button class="soda-icon-btn" type="button" :disabled="!queueSize" @click="playRelative(1)">
+              <n-icon :size="22"><play-skip-forward-outline /></n-icon>
+            </button>
           </div>
 
-          <n-text depth="3" class="soda-hint">
-            启动即预取 · 当前曲上下各缓冲 2 首
-          </n-text>
+          <div class="soda-side-actions">
+            <button
+              class="soda-icon-btn like-mini"
+              :class="{ active: liked }"
+              type="button"
+              :disabled="liking || !currentTrack?.id"
+              @click="toggleLike"
+            >
+              <n-icon :size="20">
+                <heart v-if="liked" />
+                <heart-outline v-else />
+              </n-icon>
+            </button>
+          </div>
         </div>
       </div>
     </n-spin>
-
-    <audio
-      ref="audioRef"
-      preload="auto"
-      @timeupdate="onTimeUpdate"
-      @loadedmetadata="onLoadedMetadata"
-      @ended="onAudioEnded"
-      @play="playing = true"
-      @pause="playing = false"
-    />
   </div>
 </template>
 
 <style scoped>
-.soda-player-page {
+.soda-player {
   position: relative;
   min-height: 100%;
-  color: #f4f7f5;
+  color: #f7faf8;
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-}
-
-.soda-bg {
-  position: absolute;
-  inset: -20px;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(0, 203, 100, 0.22), transparent 42%),
-    radial-gradient(circle at 80% 0%, rgba(49, 228, 76, 0.1), transparent 34%),
-    linear-gradient(160deg, #101814, #090c0a 60%, #0d1410);
+  overflow: hidden;
   border-radius: 18px;
-  z-index: 0;
 }
 
-.soda-top,
-.soda-layout,
-.soda-bottom {
+.soda-backdrop {
+  position: absolute;
+  inset: -30px;
+  background-size: cover;
+  background-position: center;
+  filter: blur(28px) saturate(1.15);
+  transform: scale(1.08);
+  opacity: 0.55;
+}
+
+.soda-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 12, 10, 0.55), rgba(8, 12, 10, 0.88) 55%, rgba(6, 10, 8, 0.96)),
+    radial-gradient(circle at 20% 20%, rgba(0, 203, 100, 0.18), transparent 40%);
+}
+
+.soda-topbar,
+.soda-stage,
+.soda-control {
   position: relative;
   z-index: 1;
 }
 
-.soda-top {
+.soda-topbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .soda-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
+  gap: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
-.soda-layout {
+.soda-logo {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #00e27a;
+  box-shadow: 0 0 14px rgba(0, 226, 122, 0.8);
+}
+
+.soda-pill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: #062015;
+  background: linear-gradient(180deg, #b7ffc8, #31e44c);
+}
+
+.soda-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7faf8;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.soda-ghost-btn:hover {
+  background: rgba(0, 226, 122, 0.16);
+  border-color: rgba(0, 226, 122, 0.35);
+}
+
+.soda-ghost-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.soda-stage {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 28px;
   align-items: stretch;
 }
 
-@media (max-width: 760px) {
-  .soda-layout {
+@media (max-width: 860px) {
+  .soda-stage {
     grid-template-columns: 1fr;
   }
 }
 
 .soda-left {
-  position: relative;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .soda-cover {
-  width: min(280px, 70vw);
+  width: min(320px, 72vw);
   aspect-ratio: 1;
-  border-radius: 24px;
-  background: linear-gradient(145deg, rgba(0, 203, 100, 0.22), rgba(0, 0, 0, 0.4)) center/cover no-repeat;
-  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.42);
-  position: relative;
-  z-index: 2;
+  border-radius: 28px;
+  background: linear-gradient(145deg, rgba(0, 226, 122, 0.2), rgba(0, 0, 0, 0.35)) center/cover no-repeat;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.42);
   overflow: hidden;
+  position: relative;
 }
 
 .soda-cover-fallback {
@@ -686,72 +773,77 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.soda-vinyl {
-  position: absolute;
-  right: max(0px, calc(50% - 180px));
-  top: 50%;
-  width: 150px;
-  height: 150px;
-  margin-top: -75px;
-  border-radius: 50%;
-  background: radial-gradient(circle at center, #222 0 18%, #111 19% 22%, #1b1b1b 23% 100%);
-  z-index: 1;
-  opacity: 0.88;
+.soda-song-title {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
-.soda-vinyl.playing {
-  animation: soda-spin 8s linear infinite;
+.soda-song-artist {
+  margin-top: 8px;
+  color: #8dffb8;
+  font-size: 15px;
 }
 
-@keyframes soda-spin {
-  to { transform: rotate(360deg); }
+.soda-song-sub {
+  margin-top: 6px;
+  color: rgba(247, 250, 248, 0.55);
+  font-size: 12px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .soda-vinyl.playing { animation: none; }
+.soda-like {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7faf8;
+  border-radius: 999px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  width: fit-content;
+}
+
+.soda-like:hover {
+  border-color: rgba(0, 226, 122, 0.4);
+  background: rgba(0, 226, 122, 0.14);
+}
+
+.soda-like.active {
+  color: #062015;
+  background: linear-gradient(180deg, #b7ffc8, #00e27a);
+  border-color: transparent;
+}
+
+.soda-like:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .soda-right {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: rgba(18, 22, 20, 0.72);
+  background: rgba(12, 16, 14, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
-  padding: 22px 24px;
-  min-height: 320px;
+  border-radius: 24px;
+  padding: 22px;
+  min-height: 360px;
 }
 
-.soda-title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 650;
-  line-height: 1.3;
-  word-break: break-word;
-}
-
-.soda-artist {
-  margin: 8px 0 0;
-  color: #7dffb0;
-  font-size: 15px;
-}
-
-.soda-album {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: rgba(244, 247, 245, 0.45);
-}
-
-/* 歌词区：隐藏滚动条 */
 .soda-lyric {
-  margin-top: 14px;
   flex: 1;
-  min-height: 180px;
-  max-height: 260px;
+  min-height: 280px;
+  max-height: 420px;
   overflow: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 8%, #000 92%, transparent);
+  padding: 12px 4px;
 }
 
 .soda-lyric::-webkit-scrollbar {
@@ -762,26 +854,26 @@ onBeforeUnmount(() => {
 
 .soda-lyric-empty {
   height: 100%;
-  min-height: 160px;
+  min-height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(244, 247, 245, 0.35);
-  font-size: 13px;
+  color: rgba(247, 250, 248, 0.38);
+  font-size: 14px;
 }
 
 .soda-lyric-line {
   position: relative;
   text-align: center;
-  padding: 8px 6px;
-  font-size: 15px;
-  line-height: 1.55;
-  color: rgba(244, 247, 245, 0.28);
+  padding: 10px 8px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: rgba(247, 250, 248, 0.28);
 }
 
 .soda-lyric-line.active {
-  color: rgba(244, 247, 245, 0.4);
-  transform: scale(1.04);
+  color: rgba(247, 250, 248, 0.42);
+  transform: scale(1.05);
 }
 
 .soda-lyric-line .base,
@@ -792,30 +884,36 @@ onBeforeUnmount(() => {
 .soda-lyric-line .fill {
   position: absolute;
   left: 0;
-  top: 8px;
-  bottom: 8px;
+  right: 0;
+  top: 10px;
+  bottom: 10px;
   overflow: hidden;
   white-space: nowrap;
   color: #7dffb0;
-  font-weight: 650;
+  font-weight: 700;
   text-align: center;
-  box-sizing: border-box;
-  padding: 0 6px;
   pointer-events: none;
 }
 
-.soda-bottom {
+.soda-error {
+  margin-top: 10px;
+  text-align: center;
+  color: #ffb4b4;
+  font-size: 12px;
+}
+
+.soda-control {
   margin-top: 18px;
-  background: rgba(18, 22, 20, 0.72);
+  background: rgba(12, 16, 14, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
-  padding: 16px 20px 18px;
+  border-radius: 22px;
+  padding: 16px 18px 18px;
 }
 
 .soda-progress {
   display: grid;
-  grid-template-columns: 44px 1fr 44px;
-  gap: 10px;
+  grid-template-columns: 48px 1fr 48px;
+  gap: 12px;
   align-items: center;
   user-select: none;
   touch-action: none;
@@ -824,7 +922,7 @@ onBeforeUnmount(() => {
 
 .soda-time {
   font-size: 12px;
-  color: rgba(244, 247, 245, 0.45);
+  color: rgba(247, 250, 248, 0.5);
   font-variant-numeric: tabular-nums;
 }
 
@@ -832,13 +930,13 @@ onBeforeUnmount(() => {
   position: relative;
   height: 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .soda-bar-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #00cb64, #31e44c);
+  background: linear-gradient(90deg, #00cb64, #7dffb0);
   pointer-events: none;
 }
 
@@ -849,13 +947,12 @@ onBeforeUnmount(() => {
   height: 14px;
   border-radius: 50%;
   background: #fff;
-  border: 2px solid #00cb64;
+  border: 2px solid #00e27a;
   transform: translate(-50%, -50%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
 
-.soda-controls {
+.soda-actions {
   margin-top: 14px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -867,50 +964,86 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
-}
-
-.soda-volume-btn {
-  color: rgba(244, 247, 245, 0.85);
 }
 
 .soda-volume-range {
-  width: min(140px, 28vw);
-  accent-color: #00cb64;
+  width: min(140px, 26vw);
+  accent-color: #00e27a;
 }
 
 .soda-volume-text {
   font-size: 12px;
-  color: rgba(244, 247, 245, 0.45);
+  color: rgba(247, 250, 248, 0.48);
   min-width: 36px;
   font-variant-numeric: tabular-nums;
 }
 
-.soda-buttons {
+.soda-main-actions {
   display: flex;
+  align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 16px;
 }
 
-.soda-play {
-  box-shadow: 0 10px 28px rgba(0, 203, 100, 0.3);
+.soda-side-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
-.soda-hint {
-  justify-self: end;
-  font-size: 12px;
-  text-align: right;
+.soda-icon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f7faf8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-@media (max-width: 760px) {
-  .soda-controls {
+.soda-icon-btn:hover {
+  background: rgba(0, 226, 122, 0.16);
+}
+
+.soda-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.soda-icon-btn.like-mini.active {
+  color: #062015;
+  background: linear-gradient(180deg, #b7ffc8, #00e27a);
+}
+
+.soda-play-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  color: #062015;
+  background: linear-gradient(180deg, #b7ffc8, #00e27a);
+  box-shadow: 0 12px 30px rgba(0, 226, 122, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.soda-play-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .soda-actions {
     grid-template-columns: 1fr;
   }
 
   .soda-volume,
-  .soda-hint {
+  .soda-side-actions {
     justify-content: center;
-    justify-self: center;
   }
 }
 </style>

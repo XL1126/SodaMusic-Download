@@ -21,6 +21,8 @@ const recommendSongTabApi = require('./recommend-song-tab')
 const recommendTrackDetailApi = require('./recommend-track-detail')
 const recommendPlayApis = require('./recommend-play')
 const recommendImageApi = require('./recommend-image')
+const recommendLikeApi = require('./recommend-like')
+const recommendPlayReportApi = require('./recommend-play-report')
 
 module.exports = [
   healthApi,
@@ -46,4 +48,6 @@ module.exports = [
   recommendTrackDetailApi,
   ...recommendPlayApis,
   recommendImageApi,
+  recommendLikeApi,
+  recommendPlayReportApi,
 ]

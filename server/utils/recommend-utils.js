@@ -251,6 +251,12 @@ function extractPlayMetaFromTrackPayload(payload) {
   const artists = getArtistNames(track.artists)
   const cover = pickCoverUrl(track)
   const lyricText = extractLyricText(payload)
+  const isCollected = Boolean(
+    payload?.is_collected
+    ?? track.is_collected
+    ?? track.collected
+    ?? track.is_liked
+  )
   return {
     id: String(track.id || payload?.track_id || ''),
     name: track.name || '',
@@ -262,6 +268,8 @@ function extractPlayMetaFromTrackPayload(payload) {
     duration: typeof track.duration === 'number' ? track.duration : 0,
     lyricText,
     lyricLines: parseLrcToLines(lyricText),
+    isCollected,
+    liked: isCollected,
   }
 }
 

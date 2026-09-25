@@ -48,3 +48,45 @@ export async function fetchRecommendPlayInfo(trackId) {
   })
   return parseApiResponse(response, '获取播放信息失败')
 }
+
+export async function likeRecommendTrack(trackId, liked) {
+  const session = getSession()
+  const response = await fetchWithTimeout('/api/recommend/like', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...session,
+      track_id: trackId,
+      action: liked ? 'like' : 'unlike',
+    }),
+  })
+  return parseApiResponse(response, liked ? '点赞失败' : '取消点赞失败')
+}
+
+export async function reportRecommendPlay({
+  trackId,
+  playMs,
+  startedAt,
+  scene = 'recommend',
+  event = 'progress',
+}) {
+  const session = getSession()
+  // 上报失败不影响播放
+  try {
+    const response = await fetchWithTimeout('/api/recommend/play-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...session,
+        track_id: trackId,
+        play_ms: playMs,
+        started_at: startedAt,
+        scene,
+        event,
+      }),
+    }, 10000)
+    return await response.json()
+  } catch {
+    return null
+  }
+}
